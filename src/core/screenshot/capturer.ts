@@ -91,12 +91,13 @@ export class ScreenshotCapturer {
         '--download-sections',
         `*${this.formatTimeForYtdlp(startTime)}-${this.formatTimeForYtdlp(endTime)}`,
         '-f',
-        'best[height<=720]',
+        'best[height<=720]/best',
         '-o',
         tempVideo,
         '--force-keyframes-at-cuts',
         '--extractor-args',
-        'youtube:player_client=web',
+        'youtube:player_client=android',
+        '--no-warnings',
         videoUrl,
       ];
 
