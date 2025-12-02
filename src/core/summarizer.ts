@@ -46,29 +46,39 @@ export class Summarizer {
     // Initialize state manager
     const stateManager = new StateManager(config.outputDir, playlistId);
 
+    // Fetch playlist info
+    onProgress?.('재생목록 정보를 가져오는 중...');
+    const playlistInfo = await this.youtube.getPlaylistInfo(playlistId);
+
+    // Fetch all current videos from playlist
+    onProgress?.('영상 목록을 가져오는 중...');
+    const currentVideos = await this.youtube.getPlaylistVideos(playlistId);
+    onProgress?.(`재생목록: ${playlistInfo.title} (${currentVideos.length}개 영상)`);
+
     // Try to load existing state
     let state = await stateManager.load();
 
     if (!state) {
-      // Fetch playlist info
-      onProgress?.('재생목록 정보를 가져오는 중...');
-      const playlistInfo = await this.youtube.getPlaylistInfo(playlistId);
-      onProgress?.(`재생목록: ${playlistInfo.title} (${playlistInfo.videoCount}개 영상)`);
-
-      // Fetch all videos
-      onProgress?.('영상 목록을 가져오는 중...');
-      const videos = await this.youtube.getPlaylistVideos(playlistId);
-      onProgress?.(`${videos.length}개 영상 발견`);
-
-      // Initialize state
+      // Initialize new state
       state = await stateManager.initialize(
         playlistId,
         playlistInfo.title,
         { locale: config.locale, withScreenshots: config.withScreenshots },
-        videos.map((v) => ({ id: v.id, title: v.title }))
+        currentVideos.map((v) => ({ id: v.id, title: v.title }))
       );
+      onProgress?.(`새 재생목록 초기화됨: ${currentVideos.length}개 영상`);
     } else {
       onProgress?.(`기존 상태 로드됨: ${state.playlistTitle}`);
+
+      // Check for new videos added to the playlist
+      const newVideoIds = await stateManager.addNewVideos(
+        currentVideos.map((v) => ({ id: v.id, title: v.title }))
+      );
+
+      if (newVideoIds.length > 0) {
+        onProgress?.(`🆕 새 영상 ${newVideoIds.length}개 발견!`);
+        state = stateManager.getState()!;
+      }
     }
 
     // Get pending videos

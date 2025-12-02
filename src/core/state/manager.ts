@@ -150,6 +150,46 @@ export class StateManager {
       .map(([id]) => id);
   }
 
+  async addNewVideos(
+    videos: Array<{ id: string; title: string }>
+  ): Promise<string[]> {
+    if (!this.state) return [];
+
+    const newVideoIds: string[] = [];
+    const existingCount = Object.keys(this.state.videos).length;
+
+    for (let i = 0; i < videos.length; i++) {
+      const video = videos[i];
+
+      // Skip if video already exists in state
+      if (this.state.videos[video.id]) {
+        continue;
+      }
+
+      // Add new video
+      const newIndex = existingCount + newVideoIds.length + 1;
+      const paddedIndex = String(newIndex).padStart(2, '0');
+      const safeTitle = this.sanitizeFilename(video.title);
+      const outputDir = `${paddedIndex}-${safeTitle}`;
+
+      this.state.videos[video.id] = {
+        title: video.title,
+        outputDir,
+        summary: { status: 'pending' },
+        screenshots: { status: 'pending', total: 0, completed: 0, files: [] },
+      };
+
+      newVideoIds.push(video.id);
+    }
+
+    if (newVideoIds.length > 0) {
+      this.state.totalVideos = Object.keys(this.state.videos).length;
+      await this.save();
+    }
+
+    return newVideoIds;
+  }
+
   getStats(): {
     total: number;
     completed: number;
