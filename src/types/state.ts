@@ -3,7 +3,8 @@ export type ProcessStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 export interface SummaryState {
   status: ProcessStatus;
   completedAt?: string;
-  timestamps?: string[];
+  timestamps?: string[]; // 섹션 시작 타임스탬프 (YouTube 링크용)
+  screenshotTimestamps?: string[]; // 스크린샷용 타임스탬프
   error?: string;
 }
 

@@ -64,8 +64,9 @@ ${summary.overview}
       content += `#### [${section.timestamp}] ${section.title}\n\n`;
 
       if (options.withScreenshots) {
-        const timestampFile = section.timestamp.replace(/:/g, '-');
-        content += `![${section.timestamp}](./screenshots/${timestampFile}.png)\n\n`;
+        // 스크린샷은 screenshotTimestamp 시점의 파일 사용
+        const screenshotFile = section.screenshotTimestamp.replace(/:/g, '-');
+        content += `![${section.screenshotTimestamp}](./screenshots/${screenshotFile}.png)\n\n`;
       }
 
       content += `${section.content}\n\n`;

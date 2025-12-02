@@ -87,12 +87,18 @@ export class GeminiClient {
 
       // Validate and transform sections
       const sections: TimestampSection[] = (parsed.sections || []).map(
-        (section: { timestamp: string; title: string; content: string }) => ({
-          timestamp: section.timestamp,
-          seconds: this.parseTimestamp(section.timestamp),
-          title: section.title,
-          content: section.content,
-        })
+        (section: { timestamp: string; screenshotTimestamp?: string; title: string; content: string }) => {
+          // screenshotTimestamp가 없으면 timestamp 사용 (fallback)
+          const screenshotTs = section.screenshotTimestamp || section.timestamp;
+          return {
+            timestamp: section.timestamp,
+            seconds: this.parseTimestamp(section.timestamp),
+            screenshotTimestamp: screenshotTs,
+            screenshotSeconds: this.parseTimestamp(screenshotTs),
+            title: section.title,
+            content: section.content,
+          };
+        }
       );
 
       return {

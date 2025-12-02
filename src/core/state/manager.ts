@@ -84,7 +84,8 @@ export class StateManager {
     videoId: string,
     status: ProcessStatus,
     timestamps?: string[],
-    error?: string
+    error?: string,
+    screenshotTimestamps?: string[]
   ): Promise<void> {
     if (!this.state?.videos[videoId]) return;
 
@@ -92,12 +93,15 @@ export class StateManager {
       status,
       ...(status === 'completed' && { completedAt: new Date().toISOString() }),
       ...(timestamps && { timestamps }),
+      ...(screenshotTimestamps && { screenshotTimestamps }),
       ...(error && { error }),
     };
 
     this.state.videos[videoId].summary = summary;
 
-    if (timestamps) {
+    if (screenshotTimestamps) {
+      this.state.videos[videoId].screenshots.total = screenshotTimestamps.length;
+    } else if (timestamps) {
       this.state.videos[videoId].screenshots.total = timestamps.length;
     }
 

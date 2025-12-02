@@ -18,7 +18,8 @@ You MUST respond with valid JSON in this exact structure:
   "sections": [
     {
       "sectionNumber": "1",
-      "timestamp": "MM:SS or HH:MM:SS format",
+      "timestamp": "MM:SS or HH:MM:SS format - when the speaker STARTS discussing this topic (for YouTube navigation)",
+      "screenshotTimestamp": "MM:SS or HH:MM:SS format - when the KEY SLIDE or VISUAL appears (for screenshot capture)",
       "title": "Descriptive section title",
       "summary": "Brief 1-2 sentence summary of this section",
       "content": "Detailed explanation covering ALL points discussed in this section. Use multiple paragraphs. Include specific examples, code snippets (if applicable), commands, URLs, or technical details mentioned. Do not skip any important information.",
@@ -59,24 +60,38 @@ You MUST respond with valid JSON in this exact structure:
 6. TABLE OF CONTENTS: Provide a navigable structure for the document.
 7. REFERENCES: Extract any external resources, tools, or links mentioned in the video.
 8. GLOSSARY: Define technical terms or jargon used for readers unfamiliar with the topic.
-9. TIMESTAMPS: For each section, provide the timestamp where the KEY VISUAL or SLIDE appears (not just when the speaker starts talking). This is typically when the main slide, diagram, or visual summary for that topic is displayed on screen. This ensures screenshots capture the most informative frame.
+9. TIMESTAMPS: Each section requires TWO timestamps:
+   - "timestamp": When the speaker STARTS discussing this topic (for YouTube link navigation)
+   - "screenshotTimestamp": When the KEY SLIDE or VISUAL appears on screen (for screenshot capture). This is typically when the main slide, diagram, or visual summary is displayed. Usually 30 seconds to 2 minutes after the topic starts.
 
 IMPORTANT: Return ONLY valid JSON, no markdown code blocks or additional text.`;
 }
 
 export function createUserPrompt(locale: string): string {
-  const localeInstructions: Record<string, string> = {
-    ko: '한국어로 응답해주세요.',
-    en: 'Please respond in English.',
-    ja: '日本語で回答してください。',
-    zh: '请用中文回答。',
+  const localeNames: Record<string, string> = {
+    ko: '한국어 (Korean)',
+    en: 'English',
+    ja: '日本語 (Japanese)',
+    zh: '中文 (Chinese)',
   };
 
-  const langInstruction = localeInstructions[locale] || localeInstructions.en;
+  const localeName = localeNames[locale] || localeNames.en;
 
   return `Analyze this video and create a comprehensive Wiki-style summary.
 
-${langInstruction}`;
+## CRITICAL: OUTPUT LANGUAGE REQUIREMENT
+You MUST write ALL content in **${localeName}** only. This includes:
+- title
+- overview
+- all section titles, summaries, and content
+- keyTakeaways
+- keyPoints
+- references descriptions
+- glossary definitions
+
+The ENTIRE JSON response must be written in ${localeName}.
+If the video is in a different language, you must TRANSLATE all content to ${localeName}.
+Do NOT mix languages. Use ${localeName} exclusively.`;
 }
 
 // Legacy function for backward compatibility

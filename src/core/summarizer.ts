@@ -125,6 +125,7 @@ export class Summarizer {
 
         // Step 1: Summarize with Gemini (if not done)
         let timestamps: string[] = [];
+        let screenshotTimestamps: string[] = [];
 
         if (videoState.summary.status !== 'completed') {
           onProgress?.(`[${index + 1}/${videos.length}] Gemini로 요약 중: ${video.title}`);
@@ -133,6 +134,7 @@ export class Summarizer {
 
           const summary = await this.gemini.summarizeVideo(video.url, config.locale);
           timestamps = summary.sections.map((s) => s.timestamp);
+          screenshotTimestamps = summary.sections.map((s) => s.screenshotTimestamp);
 
           // Generate markdown
           const markdown = this.markdownGenerator.generate(video, summary, {
@@ -144,10 +146,11 @@ export class Summarizer {
           const markdownPath = join(outputDir, 'README.md');
           await this.markdownGenerator.writeToFile(markdown, markdownPath);
 
-          await stateManager.updateSummaryStatus(video.id, 'completed', timestamps);
+          await stateManager.updateSummaryStatus(video.id, 'completed', timestamps, undefined, screenshotTimestamps);
           onProgress?.(`요약 완료: ${video.title}`);
         } else {
           timestamps = videoState.summary.timestamps || [];
+          screenshotTimestamps = videoState.summary.screenshotTimestamps || timestamps;
           onProgress?.(`요약 이미 완료됨: ${video.title}`);
         }
 
@@ -155,10 +158,10 @@ export class Summarizer {
         if (
           config.withScreenshots &&
           videoState.screenshots.status !== 'completed' &&
-          timestamps.length > 0
+          screenshotTimestamps.length > 0
         ) {
           onProgress?.(
-            `[${index + 1}/${videos.length}] 스크린샷 캡처 중: ${timestamps.length}개`
+            `[${index + 1}/${videos.length}] 스크린샷 캡처 중: ${screenshotTimestamps.length}개`
           );
 
           await stateManager.updateScreenshotStatus(video.id, 'in_progress', 0, []);
@@ -167,7 +170,7 @@ export class Summarizer {
           const screenshotCapturer = this.createScreenshotCapturer(callbacks);
           const results = await screenshotCapturer.captureMultiple(
             video.url,
-            timestamps,
+            screenshotTimestamps,
             screenshotDir
           );
 
@@ -276,8 +279,8 @@ export class Summarizer {
     // Summarize
     onProgress?.('Gemini로 요약 중...');
     const summary = await this.gemini.summarizeVideo(video.url, config.locale);
-    const timestamps = summary.sections.map((s) => s.timestamp);
-    onProgress?.(`요약 완료: ${timestamps.length}개 타임스탬프`);
+    const screenshotTimestamps = summary.sections.map((s) => s.screenshotTimestamp);
+    onProgress?.(`요약 완료: ${screenshotTimestamps.length}개 섹션`);
 
     // Create output directory
     const safeTitle = video.title
@@ -299,13 +302,13 @@ export class Summarizer {
     onProgress?.(`마크다운 저장됨: ${markdownPath}`);
 
     // Capture screenshots
-    if (config.withScreenshots && timestamps.length > 0) {
-      onProgress?.(`스크린샷 캡처 중: ${timestamps.length}개`);
+    if (config.withScreenshots && screenshotTimestamps.length > 0) {
+      onProgress?.(`스크린샷 캡처 중: ${screenshotTimestamps.length}개`);
       const screenshotDir = join(outputDir, 'screenshots');
       const screenshotCapturer = this.createScreenshotCapturer(callbacks);
       const results = await screenshotCapturer.captureMultiple(
         video.url,
-        timestamps,
+        screenshotTimestamps,
         screenshotDir
       );
 
@@ -319,7 +322,7 @@ export class Summarizer {
         }
       }
 
-      onProgress?.(`스크린샷 완료: ${successCount}/${timestamps.length}`);
+      onProgress?.(`스크린샷 완료: ${successCount}/${screenshotTimestamps.length}`);
     }
 
     onProgress?.('완료!');
