@@ -1,0 +1,46 @@
+{
+  "name": "youtube-playlist-summarizer",
+  "version": "1.0.0",
+  "description": "YouTube playlist summarizer using Gemini (Vertex AI)",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "yt-summarize": "./dist/index.js"
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mnthe/youtube-playlist-summarizer.git"
+  },
+  "keywords": [
+    "youtube",
+    "summarizer",
+    "gemini",
+    "vertex-ai"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mnthe/youtube-playlist-summarizer/issues"
+  },
+  "homepage": "https://github.com/mnthe/youtube-playlist-summarizer#readme",
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@google-cloud/vertexai": "^1.10.0",
+    "commander": "^14.0.2",
+    "dotenv": "^17.2.3",
+    "googleapis": "^166.0.0"
+  }
+}
