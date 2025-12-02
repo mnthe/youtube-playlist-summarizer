@@ -59,7 +59,7 @@ You MUST respond with valid JSON in this exact structure:
 6. TABLE OF CONTENTS: Provide a navigable structure for the document.
 7. REFERENCES: Extract any external resources, tools, or links mentioned in the video.
 8. GLOSSARY: Define technical terms or jargon used for readers unfamiliar with the topic.
-9. TIMESTAMPS: Use accurate timestamps for each section to allow readers to jump to specific parts.
+9. TIMESTAMPS: For each section, provide the timestamp where the KEY VISUAL or SLIDE appears (not just when the speaker starts talking). This is typically when the main slide, diagram, or visual summary for that topic is displayed on screen. This ensures screenshots capture the most informative frame.
 
 IMPORTANT: Return ONLY valid JSON, no markdown code blocks or additional text.`;
 }

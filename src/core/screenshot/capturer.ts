@@ -22,7 +22,7 @@ export class ScreenshotCapturer {
   constructor(
     tempDir: string = '/tmp/yt-summarize',
     logger?: ScreenshotLogger,
-    timestampOffset: number = 3 // 기본 3초 뒤에 캡처
+    timestampOffset: number = 0 // 기본값: 오프셋 없음 (프롬프트에서 핵심 슬라이드 시점 요청)
   ) {
     this.tempDir = tempDir;
     this.logger = logger;
