@@ -28,11 +28,18 @@ export class Summarizer {
     this.markdownGenerator = new MarkdownGenerator();
   }
 
-  private createScreenshotCapturer(callbacks: SummarizerCallbacks): ScreenshotCapturer {
-    return new ScreenshotCapturer('/tmp/yt-summarize', {
-      debug: callbacks.onDebug,
-      error: callbacks.onProgress, // 에러도 progress로 출력
-    });
+  private createScreenshotCapturer(
+    callbacks: SummarizerCallbacks,
+    timestampOffset: number = 3
+  ): ScreenshotCapturer {
+    return new ScreenshotCapturer(
+      '/tmp/yt-summarize',
+      {
+        debug: callbacks.onDebug,
+        error: callbacks.onProgress, // 에러도 progress로 출력
+      },
+      timestampOffset
+    );
   }
 
   async summarizePlaylist(

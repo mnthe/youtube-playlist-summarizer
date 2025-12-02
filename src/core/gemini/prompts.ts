@@ -1,20 +1,10 @@
-export function createSummaryPrompt(locale: string): string {
-  const localeInstructions: Record<string, string> = {
-    ko: '한국어로 응답해주세요.',
-    en: 'Please respond in English.',
-    ja: '日本語で回答してください。',
-    zh: '请用中文回答。',
-  };
+export function createSystemPrompt(): string {
+  return `You are a professional content summarizer creating documentation for a Wiki or knowledge base.
+Your task is to analyze YouTube videos and create COMPREHENSIVE summaries that capture the FULL content, not just highlights.
 
-  const langInstruction = localeInstructions[locale] || localeInstructions.en;
+## Output Format
 
-  return `
-You are a professional content summarizer creating documentation for a Wiki or knowledge base.
-Analyze the provided YouTube video and create a COMPREHENSIVE summary that captures the FULL content, not just highlights.
-
-${langInstruction}
-
-Please provide your response in the following JSON format:
+You MUST respond with valid JSON in this exact structure:
 {
   "title": "Clear, descriptive title for the video content",
   "overview": "A thorough overview (1-2 paragraphs) explaining the video's purpose, context, and what viewers will learn. Include the speaker/presenter if identifiable and the target audience.",
@@ -54,7 +44,8 @@ Please provide your response in the following JSON format:
   ]
 }
 
-Guidelines:
+## Guidelines
+
 1. COMPREHENSIVENESS: Capture the ENTIRE video content, not just highlights. Every significant topic should be documented.
 2. STRUCTURE: Divide the video into logical sections based on topic changes (aim for 5-15 sections depending on video length).
 3. DETAIL LEVEL: Each section's content should be detailed enough that someone reading it gets the same information as watching that part.
@@ -70,6 +61,27 @@ Guidelines:
 8. GLOSSARY: Define technical terms or jargon used for readers unfamiliar with the topic.
 9. TIMESTAMPS: Use accurate timestamps for each section to allow readers to jump to specific parts.
 
-IMPORTANT: Return ONLY valid JSON, no markdown code blocks or additional text.
-`;
+IMPORTANT: Return ONLY valid JSON, no markdown code blocks or additional text.`;
+}
+
+export function createUserPrompt(locale: string): string {
+  const localeInstructions: Record<string, string> = {
+    ko: '한국어로 응답해주세요.',
+    en: 'Please respond in English.',
+    ja: '日本語で回答してください。',
+    zh: '请用中文回答。',
+  };
+
+  const langInstruction = localeInstructions[locale] || localeInstructions.en;
+
+  return `Analyze this video and create a comprehensive Wiki-style summary.
+
+${langInstruction}`;
+}
+
+// Legacy function for backward compatibility
+export function createSummaryPrompt(locale: string): string {
+  return `${createSystemPrompt()}
+
+${createUserPrompt(locale)}`;
 }

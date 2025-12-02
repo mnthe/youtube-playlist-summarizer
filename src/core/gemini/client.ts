@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import type { VideoSummary, TimestampSection } from '../../types/index.js';
-import { createSummaryPrompt } from './prompts.js';
+import { createSystemPrompt, createUserPrompt } from './prompts.js';
 
 export interface GeminiClientConfig {
   projectId: string;
@@ -22,7 +22,8 @@ export class GeminiClient {
   }
 
   async summarizeVideo(videoUrl: string, locale: string): Promise<VideoSummary> {
-    const prompt = createSummaryPrompt(locale);
+    const systemPrompt = createSystemPrompt();
+    const userPrompt = createUserPrompt(locale);
 
     const ytVideo = {
       fileData: {
@@ -34,7 +35,10 @@ export class GeminiClient {
     try {
       const response = await this.client.models.generateContent({
         model: this.modelName,
-        contents: [ytVideo, { text: prompt }],
+        config: {
+          systemInstruction: systemPrompt,
+        },
+        contents: [ytVideo, { text: userPrompt }],
       });
 
       const text = response.text;
