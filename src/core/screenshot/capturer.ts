@@ -95,6 +95,8 @@ export class ScreenshotCapturer {
         '-o',
         tempVideo,
         '--force-keyframes-at-cuts',
+        '--extractor-args',
+        'youtube:player_client=web',
         videoUrl,
       ];
 
