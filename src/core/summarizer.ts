@@ -93,13 +93,15 @@ export class Summarizer {
     // Get video details for pending videos
     const videos = await this.youtube.getVideoDetails(pendingVideoIds);
 
-    // Process each video
-    for (let i = 0; i < videos.length; i++) {
-      const video = videos[i];
-      const videoState = stateManager.getVideoState(video.id);
-      if (!videoState) continue;
+    // Process videos with concurrency control
+    const concurrency = config.concurrency || 1;
+    let completedCount = 0;
 
-      onVideoStart?.(video, i + 1, videos.length);
+    const processVideo = async (video: VideoInfo, index: number): Promise<void> => {
+      const videoState = stateManager.getVideoState(video.id);
+      if (!videoState) return;
+
+      onVideoStart?.(video, index + 1, videos.length);
 
       try {
         const outputDir = join(
@@ -112,7 +114,7 @@ export class Summarizer {
         let timestamps: string[] = [];
 
         if (videoState.summary.status !== 'completed') {
-          onProgress?.(`[${i + 1}/${videos.length}] Gemini로 요약 중: ${video.title}`);
+          onProgress?.(`[${index + 1}/${videos.length}] Gemini로 요약 중: ${video.title}`);
 
           await stateManager.updateSummaryStatus(video.id, 'in_progress');
 
@@ -143,7 +145,7 @@ export class Summarizer {
           timestamps.length > 0
         ) {
           onProgress?.(
-            `[${i + 1}/${videos.length}] 스크린샷 캡처 중: ${timestamps.length}개`
+            `[${index + 1}/${videos.length}] 스크린샷 캡처 중: ${timestamps.length}개`
           );
 
           await stateManager.updateScreenshotStatus(video.id, 'in_progress', 0, []);
@@ -188,24 +190,52 @@ export class Summarizer {
           );
         }
 
-        onVideoComplete?.(video, i + 1, videos.length);
+        completedCount++;
+        onVideoComplete?.(video, completedCount, videos.length);
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         onVideoError?.(video, err);
 
         // Update state with error
-        if (videoState.summary.status !== 'completed') {
+        const currentVideoState = stateManager.getVideoState(video.id);
+        if (currentVideoState && currentVideoState.summary.status !== 'completed') {
           await stateManager.updateSummaryStatus(video.id, 'failed', undefined, err.message);
-        } else {
+        } else if (currentVideoState) {
           await stateManager.updateScreenshotStatus(
             video.id,
             'failed',
-            videoState.screenshots.completed,
-            videoState.screenshots.files,
+            currentVideoState.screenshots.completed,
+            currentVideoState.screenshots.files,
             err.message
           );
         }
       }
+    };
+
+    // Run with concurrency control
+    if (concurrency <= 1) {
+      // Sequential processing
+      for (let i = 0; i < videos.length; i++) {
+        await processVideo(videos[i], i);
+      }
+    } else {
+      // Parallel processing with pool
+      const pool: Promise<void>[] = [];
+      let nextIndex = 0;
+
+      const runNext = async (): Promise<void> => {
+        while (nextIndex < videos.length) {
+          const currentIndex = nextIndex++;
+          await processVideo(videos[currentIndex], currentIndex);
+        }
+      };
+
+      // Start initial workers
+      for (let i = 0; i < Math.min(concurrency, videos.length); i++) {
+        pool.push(runNext());
+      }
+
+      await Promise.all(pool);
     }
 
     const stats = stateManager.getStats();
