@@ -1,3 +1,6 @@
 #!/usr/bin/env node
 
-console.log('YouTube Playlist Summarizer');
+import { createCLI } from './adapters/cli/index.js';
+
+const cli = createCLI();
+cli.parse(process.argv);
