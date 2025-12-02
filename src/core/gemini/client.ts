@@ -18,7 +18,7 @@ export class GeminiClient {
     });
 
     this.model = vertexAI.getGenerativeModel({
-      model: config.model || 'gemini-2.0-flash',
+      model: config.model || 'gemini-2.5-flash',
     });
   }
 
