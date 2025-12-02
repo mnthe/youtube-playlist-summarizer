@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { mkdir, unlink, access } from 'fs/promises';
+import { mkdir, unlink, access, readdir } from 'fs/promises';
 import { join, dirname } from 'path';
 
 export interface CaptureResult {
@@ -17,10 +17,16 @@ export interface ScreenshotLogger {
 export class ScreenshotCapturer {
   private tempDir: string;
   private logger?: ScreenshotLogger;
+  private timestampOffset: number; // 타임스탬프 이후 오프셋 (초)
 
-  constructor(tempDir: string = '/tmp/yt-summarize', logger?: ScreenshotLogger) {
+  constructor(
+    tempDir: string = '/tmp/yt-summarize',
+    logger?: ScreenshotLogger,
+    timestampOffset: number = 3 // 기본 3초 뒤에 캡처
+  ) {
     this.tempDir = tempDir;
     this.logger = logger;
+    this.timestampOffset = timestampOffset;
   }
 
   private log(message: string): void {
@@ -72,10 +78,12 @@ export class ScreenshotCapturer {
     outputPath: string
   ): Promise<CaptureResult> {
     const seconds = this.parseTimestamp(timestamp);
-    const startTime = Math.max(0, seconds - 1);
-    const endTime = seconds + 1;
+    // 오프셋 적용: 타임스탬프 + offset 시점을 캡처
+    const targetTime = seconds + this.timestampOffset;
+    const startTime = Math.max(0, targetTime - 1);
+    const endTime = targetTime + 1;
 
-    this.log(`[${timestamp}] 스크린샷 캡처 시작 (${startTime}s - ${endTime}s)`);
+    this.log(`[${timestamp}] 스크린샷 캡처 시작 (원본: ${seconds}s, 오프셋 적용: ${targetTime}s)`);
 
     await this.ensureDir(dirname(outputPath));
     await this.ensureDir(this.tempDir);
