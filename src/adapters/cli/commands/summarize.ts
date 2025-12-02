@@ -15,6 +15,7 @@ export function createSummarizeCommand(): Command {
     .option('-c, --concurrency <number>', '동시 처리 수', '1')
     .option('--no-screenshots', '스크린샷 제외')
     .option('-r, --retry <number>', '재시도 횟수', '3')
+    .option('--verbose', '상세 로그 출력')
     .action(async (options) => {
       const youtubeApiKey = process.env.YOUTUBE_API_KEY;
       const projectId = process.env.GOOGLE_CLOUD_PROJECT;
@@ -49,6 +50,9 @@ export function createSummarizeCommand(): Command {
 
       const callbacks = {
         onProgress: (message: string) => console.log(`ℹ️  ${message}`),
+        onDebug: options.verbose
+          ? (message: string) => console.log(`🔍 ${message}`)
+          : undefined,
         onVideoStart: (video: { title: string }, index: number, total: number) =>
           console.log(`\n🎬 [${index}/${total}] 시작: ${video.title}`),
         onVideoComplete: (video: { title: string }, index: number, total: number) =>

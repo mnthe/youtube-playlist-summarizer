@@ -20,7 +20,7 @@ Please provide your response in the following JSON format:
     {
       "timestamp": "MM:SS or HH:MM:SS format",
       "title": "Section title",
-      "content": "Detailed explanation of what happens at this timestamp (2-3 sentences)"
+      "content": "Detailed explanation of what happens at this timestamp (multiple paragraphs if necessary)"
     }
   ],
   "keyPoints": [
@@ -31,7 +31,7 @@ Please provide your response in the following JSON format:
 }
 
 Guidelines:
-1. Identify 5-10 key timestamps where important content changes or key points are made
+1. Identify 5-20 key timestamps where important content changes or key points are made
 2. For each section, note the exact timestamp and provide a meaningful title
 3. The content should explain what is being discussed or demonstrated at that timestamp
 4. Key points should be actionable takeaways from the video

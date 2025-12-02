@@ -1,1 +1,1 @@
-export { ScreenshotCapturer, type CaptureResult } from './capturer.js';
+export { ScreenshotCapturer, type CaptureResult, type ScreenshotLogger } from './capturer.js';

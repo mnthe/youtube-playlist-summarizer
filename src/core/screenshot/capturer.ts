@@ -9,11 +9,26 @@ export interface CaptureResult {
   error?: string;
 }
 
+export interface ScreenshotLogger {
+  debug?: (message: string) => void;
+  error?: (message: string) => void;
+}
+
 export class ScreenshotCapturer {
   private tempDir: string;
+  private logger?: ScreenshotLogger;
 
-  constructor(tempDir: string = '/tmp/yt-summarize') {
+  constructor(tempDir: string = '/tmp/yt-summarize', logger?: ScreenshotLogger) {
     this.tempDir = tempDir;
+    this.logger = logger;
+  }
+
+  private log(message: string): void {
+    this.logger?.debug?.(message);
+  }
+
+  private logError(message: string): void {
+    this.logger?.error?.(message);
   }
 
   async ensureDir(dir: string): Promise<void> {
@@ -60,6 +75,8 @@ export class ScreenshotCapturer {
     const startTime = Math.max(0, seconds - 1);
     const endTime = seconds + 1;
 
+    this.log(`[${timestamp}] 스크린샷 캡처 시작 (${startTime}s - ${endTime}s)`);
+
     await this.ensureDir(dirname(outputPath));
     await this.ensureDir(this.tempDir);
 
@@ -70,7 +87,7 @@ export class ScreenshotCapturer {
 
     try {
       // Step 1: Download video segment using yt-dlp
-      const downloadResult = await this.runCommand('yt-dlp', [
+      const ytdlpArgs = [
         '--download-sections',
         `*${this.formatTimeForYtdlp(startTime)}-${this.formatTimeForYtdlp(endTime)}`,
         '-f',
@@ -79,19 +96,26 @@ export class ScreenshotCapturer {
         tempVideo,
         '--force-keyframes-at-cuts',
         videoUrl,
-      ]);
+      ];
+
+      this.log(`[${timestamp}] yt-dlp 실행: yt-dlp ${ytdlpArgs.join(' ')}`);
+      const downloadResult = await this.runCommand('yt-dlp', ytdlpArgs);
 
       if (downloadResult.code !== 0) {
+        const errorMsg = `yt-dlp failed (code ${downloadResult.code}): ${downloadResult.stderr.slice(0, 500)}`;
+        this.logError(`[${timestamp}] ${errorMsg}`);
         return {
           timestamp,
           filePath: outputPath,
           success: false,
-          error: `yt-dlp failed: ${downloadResult.stderr}`,
+          error: errorMsg,
         };
       }
 
+      this.log(`[${timestamp}] yt-dlp 완료, ffmpeg로 프레임 추출 중...`);
+
       // Step 2: Extract frame using ffmpeg
-      const ffmpegResult = await this.runCommand('ffmpeg', [
+      const ffmpegArgs = [
         '-y',
         '-i',
         tempVideo,
@@ -102,19 +126,25 @@ export class ScreenshotCapturer {
         '-q:v',
         '2',
         outputPath,
-      ]);
+      ];
+
+      const ffmpegResult = await this.runCommand('ffmpeg', ffmpegArgs);
 
       if (ffmpegResult.code !== 0) {
+        const errorMsg = `ffmpeg failed (code ${ffmpegResult.code}): ${ffmpegResult.stderr.slice(0, 500)}`;
+        this.logError(`[${timestamp}] ${errorMsg}`);
         return {
           timestamp,
           filePath: outputPath,
           success: false,
-          error: `ffmpeg failed: ${ffmpegResult.stderr}`,
+          error: errorMsg,
         };
       }
 
       // Verify file exists
       await access(outputPath);
+
+      this.log(`[${timestamp}] 스크린샷 저장 완료: ${outputPath}`);
 
       return {
         timestamp,
@@ -122,11 +152,13 @@ export class ScreenshotCapturer {
         success: true,
       };
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.logError(`[${timestamp}] 예외 발생: ${errorMsg}`);
       return {
         timestamp,
         filePath: outputPath,
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMsg,
       };
     } finally {
       // Cleanup temp file

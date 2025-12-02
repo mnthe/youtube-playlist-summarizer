@@ -8,6 +8,7 @@ import type { SummarizerConfig, VideoInfo } from '../types/index.js';
 
 export interface SummarizerCallbacks {
   onProgress?: (message: string) => void;
+  onDebug?: (message: string) => void;
   onVideoStart?: (video: VideoInfo, index: number, total: number) => void;
   onVideoComplete?: (video: VideoInfo, index: number, total: number) => void;
   onVideoError?: (video: VideoInfo, error: Error) => void;
@@ -16,7 +17,6 @@ export interface SummarizerCallbacks {
 export class Summarizer {
   private youtube: YouTubeClient;
   private gemini: GeminiClient;
-  private screenshotCapturer: ScreenshotCapturer;
   private markdownGenerator: MarkdownGenerator;
 
   constructor(
@@ -25,8 +25,14 @@ export class Summarizer {
   ) {
     this.youtube = new YouTubeClient(youtubeApiKey);
     this.gemini = new GeminiClient(geminiConfig);
-    this.screenshotCapturer = new ScreenshotCapturer();
     this.markdownGenerator = new MarkdownGenerator();
+  }
+
+  private createScreenshotCapturer(callbacks: SummarizerCallbacks): ScreenshotCapturer {
+    return new ScreenshotCapturer('/tmp/yt-summarize', {
+      debug: callbacks.onDebug,
+      error: callbacks.onProgress, // 에러도 progress로 출력
+    });
   }
 
   async summarizePlaylist(
@@ -151,7 +157,8 @@ export class Summarizer {
           await stateManager.updateScreenshotStatus(video.id, 'in_progress', 0, []);
 
           const screenshotDir = join(outputDir, 'screenshots');
-          const results = await this.screenshotCapturer.captureMultiple(
+          const screenshotCapturer = this.createScreenshotCapturer(callbacks);
+          const results = await screenshotCapturer.captureMultiple(
             video.url,
             timestamps,
             screenshotDir
@@ -161,17 +168,19 @@ export class Summarizer {
             .filter((r) => r.success)
             .map((r) => r.filePath.split('/').pop()!);
 
-          const failedCount = results.filter((r) => !r.success).length;
+          const failedResults = results.filter((r) => !r.success);
 
-          if (failedCount > 0) {
-            const errors = results
-              .filter((r) => !r.success)
-              .map((r) => r.error)
-              .join('; ');
+          if (failedResults.length > 0) {
+            onProgress?.(`⚠️ 스크린샷 실패: ${failedResults.length}개`);
+            for (const failed of failedResults) {
+              onProgress?.(`  - [${failed.timestamp}] ${failed.error}`);
+            }
+
+            const errors = failedResults.map((r) => r.error).join('; ');
 
             await stateManager.updateScreenshotStatus(
               video.id,
-              failedCount === results.length ? 'failed' : 'completed',
+              failedResults.length === results.length ? 'failed' : 'completed',
               successfulFiles.length,
               successfulFiles,
               errors
@@ -286,13 +295,23 @@ export class Summarizer {
     if (config.withScreenshots && timestamps.length > 0) {
       onProgress?.(`스크린샷 캡처 중: ${timestamps.length}개`);
       const screenshotDir = join(outputDir, 'screenshots');
-      const results = await this.screenshotCapturer.captureMultiple(
+      const screenshotCapturer = this.createScreenshotCapturer(callbacks);
+      const results = await screenshotCapturer.captureMultiple(
         video.url,
         timestamps,
         screenshotDir
       );
 
       const successCount = results.filter((r) => r.success).length;
+      const failedResults = results.filter((r) => !r.success);
+
+      if (failedResults.length > 0) {
+        onProgress?.(`⚠️ 스크린샷 실패: ${failedResults.length}개`);
+        for (const failed of failedResults) {
+          onProgress?.(`  - [${failed.timestamp}] ${failed.error}`);
+        }
+      }
+
       onProgress?.(`스크린샷 완료: ${successCount}/${timestamps.length}`);
     }
 
