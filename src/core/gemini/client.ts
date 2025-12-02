@@ -1,4 +1,4 @@
-import { VertexAI, GenerativeModel } from '@google-cloud/vertexai';
+import { GoogleGenAI } from '@google/genai';
 import type { VideoSummary, TimestampSection } from '../../types/index.js';
 import { createSummaryPrompt } from './prompts.js';
 
@@ -9,61 +9,35 @@ export interface GeminiClientConfig {
 }
 
 export class GeminiClient {
-  private model: GenerativeModel;
+  private client: GoogleGenAI;
+  private modelName: string;
 
   constructor(config: GeminiClientConfig) {
-    const vertexAI = new VertexAI({
+    this.client = new GoogleGenAI({
+      vertexai: true,
       project: config.projectId,
       location: config.location,
     });
-
-    this.model = vertexAI.getGenerativeModel({
-      model: config.model || 'gemini-2.5-flash',
-    });
+    this.modelName = config.model || 'gemini-2.5-flash';
   }
 
   async summarizeVideo(videoUrl: string, locale: string): Promise<VideoSummary> {
     const prompt = createSummaryPrompt(locale);
 
-    const request = {
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              fileData: {
-                fileUri: videoUrl,
-                mimeType: 'video/mp4',
-              },
-            },
-            {
-              text: prompt,
-            },
-          ],
-        },
-      ],
+    const ytVideo = {
+      fileData: {
+        fileUri: videoUrl,
+        mimeType: 'video/mp4',
+      },
     };
 
     try {
-      const response = await this.model.generateContent(request);
-      const result = response.response;
+      const response = await this.client.models.generateContent({
+        model: this.modelName,
+        contents: [ytVideo, { text: prompt }],
+      });
 
-      // Check for blocked content or safety issues
-      if (result.promptFeedback?.blockReason) {
-        throw new Error(`Content blocked: ${result.promptFeedback.blockReason}`);
-      }
-
-      const candidate = result.candidates?.[0];
-      if (!candidate) {
-        throw new Error('No candidates in Gemini response');
-      }
-
-      // Check finish reason
-      if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-        throw new Error(`Gemini stopped unexpectedly: ${candidate.finishReason}`);
-      }
-
-      const text = candidate.content?.parts?.[0]?.text;
+      const text = response.text;
       if (!text) {
         throw new Error('No text content in Gemini response');
       }
