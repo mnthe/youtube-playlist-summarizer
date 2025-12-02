@@ -44,15 +44,46 @@ export class GeminiClient {
       ],
     };
 
-    const response = await this.model.generateContent(request);
-    const result = response.response;
-    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    try {
+      const response = await this.model.generateContent(request);
+      const result = response.response;
 
-    if (!text) {
-      throw new Error('No response from Gemini');
+      // Check for blocked content or safety issues
+      if (result.promptFeedback?.blockReason) {
+        throw new Error(`Content blocked: ${result.promptFeedback.blockReason}`);
+      }
+
+      const candidate = result.candidates?.[0];
+      if (!candidate) {
+        throw new Error('No candidates in Gemini response');
+      }
+
+      // Check finish reason
+      if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+        throw new Error(`Gemini stopped unexpectedly: ${candidate.finishReason}`);
+      }
+
+      const text = candidate.content?.parts?.[0]?.text;
+      if (!text) {
+        throw new Error('No text content in Gemini response');
+      }
+
+      return this.parseResponse(text);
+    } catch (error) {
+      if (error instanceof Error) {
+        // Re-throw our custom errors
+        if (error.message.startsWith('Content blocked') ||
+            error.message.startsWith('No candidates') ||
+            error.message.startsWith('Gemini stopped') ||
+            error.message.startsWith('No text content') ||
+            error.message.startsWith('Failed to parse')) {
+          throw error;
+        }
+        // Wrap other errors with more context
+        throw new Error(`Gemini API error for ${videoUrl}: ${error.message}`);
+      }
+      throw new Error(`Gemini API error for ${videoUrl}: ${String(error)}`);
     }
-
-    return this.parseResponse(text);
   }
 
   private parseResponse(text: string): VideoSummary {
@@ -67,6 +98,11 @@ export class GeminiClient {
       cleanText = cleanText.slice(0, -3);
     }
     cleanText = cleanText.trim();
+
+    // Check for HTML response (indicates API error)
+    if (cleanText.startsWith('<!DOCTYPE') || cleanText.startsWith('<html')) {
+      throw new Error('Received HTML instead of JSON - possible API authentication or permission error');
+    }
 
     try {
       const parsed = JSON.parse(cleanText);
@@ -87,7 +123,9 @@ export class GeminiClient {
         keyPoints: parsed.keyPoints || [],
       };
     } catch (error) {
-      throw new Error(`Failed to parse Gemini response: ${error}`);
+      // Show first 200 chars of response for debugging
+      const preview = cleanText.slice(0, 200);
+      throw new Error(`Failed to parse Gemini response. Preview: "${preview}..."`);
     }
   }
 
