@@ -6,11 +6,15 @@ export interface GeminiClientConfig {
   projectId: string;
   location: string;
   model?: string;
+  maxRetries?: number;
+  retryDelayMs?: number;
 }
 
 export class GeminiClient {
   private client: GoogleGenAI;
   private modelName: string;
+  private maxRetries: number;
+  private retryDelayMs: number;
 
   constructor(config: GeminiClientConfig) {
     this.client = new GoogleGenAI({
@@ -19,6 +23,30 @@ export class GeminiClient {
       location: config.location,
     });
     this.modelName = config.model || 'gemini-2.5-flash';
+    this.maxRetries = config.maxRetries ?? 3;
+    this.retryDelayMs = config.retryDelayMs ?? 5000;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private isRetryableError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('fetch failed') ||
+      message.includes('network') ||
+      message.includes('timeout') ||
+      message.includes('econnreset') ||
+      message.includes('econnrefused') ||
+      message.includes('socket hang up') ||
+      message.includes('503') ||
+      message.includes('502') ||
+      message.includes('429') ||
+      message.includes('rate limit')
+    );
   }
 
   async summarizeVideo(videoUrl: string, locale: string): Promise<VideoSummary> {
@@ -32,36 +60,53 @@ export class GeminiClient {
       },
     };
 
-    try {
-      const response = await this.client.models.generateContent({
-        model: this.modelName,
-        config: {
-          systemInstruction: systemPrompt,
-        },
-        contents: [ytVideo, { text: userPrompt }],
-      });
+    let lastError: Error | null = null;
 
-      const text = response.text;
-      if (!text) {
-        throw new Error('No text content in Gemini response');
-      }
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        const response = await this.client.models.generateContent({
+          model: this.modelName,
+          config: {
+            systemInstruction: systemPrompt,
+          },
+          contents: [ytVideo, { text: userPrompt }],
+        });
 
-      return this.parseResponse(text);
-    } catch (error) {
-      if (error instanceof Error) {
-        // Re-throw our custom errors
-        if (error.message.startsWith('Content blocked') ||
-            error.message.startsWith('No candidates') ||
-            error.message.startsWith('Gemini stopped') ||
-            error.message.startsWith('No text content') ||
-            error.message.startsWith('Failed to parse')) {
-          throw error;
+        const text = response.text;
+        if (!text) {
+          throw new Error('No text content in Gemini response');
         }
-        // Wrap other errors with more context
-        throw new Error(`Gemini API error for ${videoUrl}: ${error.message}`);
+
+        return this.parseResponse(text);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        // Check if this is a non-retryable error
+        if (lastError.message.startsWith('Content blocked') ||
+            lastError.message.startsWith('No candidates') ||
+            lastError.message.startsWith('Gemini stopped') ||
+            lastError.message.startsWith('No text content') ||
+            lastError.message.startsWith('Failed to parse')) {
+          throw lastError;
+        }
+
+        // Check if we should retry
+        if (attempt < this.maxRetries && this.isRetryableError(error)) {
+          const delayMs = this.retryDelayMs * Math.pow(2, attempt);
+          console.warn(
+            `⚠️ Gemini API request failed (attempt ${attempt + 1}/${this.maxRetries + 1}): ${lastError.message}. Retrying in ${delayMs / 1000}s...`
+          );
+          await this.sleep(delayMs);
+          continue;
+        }
+
+        // No more retries, throw the error
+        throw new Error(`Gemini API error for ${videoUrl}: ${lastError.message}`);
       }
-      throw new Error(`Gemini API error for ${videoUrl}: ${String(error)}`);
     }
+
+    // This should never be reached, but TypeScript needs it
+    throw new Error(`Gemini API error for ${videoUrl}: ${lastError?.message || 'Unknown error'}`);
   }
 
   private parseResponse(text: string): VideoSummary {
