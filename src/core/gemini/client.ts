@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import type { VideoSummary, TimestampSection } from '../../types/index.js';
@@ -96,6 +96,50 @@ export class GeminiClient {
           config: {
             systemInstruction: systemPrompt,
             maxOutputTokens: 65536,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                overview: {
+                  type: Type.STRING,
+                  description: 'Brief overview of the video content',
+                },
+                sections: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      timestamp: {
+                        type: Type.STRING,
+                        description: 'Section start timestamp in HH:MM:SS or MM:SS format',
+                      },
+                      screenshotTimestamp: {
+                        type: Type.STRING,
+                        description: 'Best moment for screenshot in HH:MM:SS or MM:SS format',
+                      },
+                      title: {
+                        type: Type.STRING,
+                        description: 'Section title',
+                      },
+                      content: {
+                        type: Type.STRING,
+                        description: 'Detailed section content',
+                      },
+                    },
+                    required: ['timestamp', 'screenshotTimestamp', 'title', 'content'],
+                  },
+                  description: 'Video sections with timestamps',
+                },
+                keyPoints: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.STRING,
+                  },
+                  description: 'Key points from the video',
+                },
+              },
+              required: ['overview', 'sections', 'keyPoints'],
+            },
           },
           contents: [ytVideo, { text: userPrompt }],
         });
@@ -139,43 +183,19 @@ export class GeminiClient {
   }
 
   private parseResponse(text: string): VideoSummary {
-    // Clean up the response - remove markdown code blocks if present
-    let cleanText = text.trim();
-    if (cleanText.startsWith('```json')) {
-      cleanText = cleanText.slice(7);
-    } else if (cleanText.startsWith('```')) {
-      cleanText = cleanText.slice(3);
-    }
-    if (cleanText.endsWith('```')) {
-      cleanText = cleanText.slice(0, -3);
-    }
-    cleanText = cleanText.trim();
-
-    // Check for HTML response (indicates API error)
-    if (cleanText.startsWith('<!DOCTYPE') || cleanText.startsWith('<html')) {
-      throw new Error('Received HTML instead of JSON - possible API authentication or permission error');
-    }
-
-    // Fix unescaped quotes inside JSON string values
-    cleanText = this.fixUnescapedQuotes(cleanText);
-
     try {
-      const parsed = JSON.parse(cleanText);
+      const parsed = JSON.parse(text);
 
-      // Validate and transform sections
+      // Transform sections to add computed seconds fields
       const sections: TimestampSection[] = (parsed.sections || []).map(
-        (section: { timestamp: string; screenshotTimestamp?: string; title: string; content: string }) => {
-          // screenshotTimestamp가 없으면 timestamp 사용 (fallback)
-          const screenshotTs = section.screenshotTimestamp || section.timestamp;
-          return {
-            timestamp: section.timestamp,
-            seconds: this.parseTimestamp(section.timestamp),
-            screenshotTimestamp: screenshotTs,
-            screenshotSeconds: this.parseTimestamp(screenshotTs),
-            title: section.title,
-            content: section.content,
-          };
-        }
+        (section: { timestamp: string; screenshotTimestamp: string; title: string; content: string }) => ({
+          timestamp: section.timestamp,
+          seconds: this.parseTimestamp(section.timestamp),
+          screenshotTimestamp: section.screenshotTimestamp,
+          screenshotSeconds: this.parseTimestamp(section.screenshotTimestamp),
+          title: section.title,
+          content: section.content,
+        })
       );
 
       return {
@@ -191,7 +211,7 @@ export class GeminiClient {
 
       try {
         mkdirSync(debugDir, { recursive: true });
-        writeFileSync(debugFile, cleanText, 'utf-8');
+        writeFileSync(debugFile, text, 'utf-8');
       } catch {
         // Ignore write errors
       }
@@ -208,53 +228,5 @@ export class GeminiClient {
       return parts[0] * 60 + parts[1];
     }
     return 0;
-  }
-
-  /**
-   * Fix unescaped quotes inside JSON string values.
-   * Example: {"key": "value with "unescaped" quotes"} -> {"key": "value with \"unescaped\" quotes"}
-   */
-  private fixUnescapedQuotes(json: string): string {
-    // Process character by character to handle quotes inside string values
-    const result: string[] = [];
-    let inString = false;
-    let i = 0;
-
-    while (i < json.length) {
-      const char = json[i];
-      const prevChar = i > 0 ? json[i - 1] : '';
-
-      if (char === '"' && prevChar !== '\\') {
-        if (!inString) {
-          // Starting a string
-          inString = true;
-          result.push(char);
-        } else {
-          // Check if this quote ends the string or is unescaped inside
-          // Look ahead to see if this looks like end of string value
-          const afterQuote = json.slice(i + 1).trimStart();
-          const isEndOfString =
-            afterQuote.startsWith(',') ||
-            afterQuote.startsWith('}') ||
-            afterQuote.startsWith(']') ||
-            afterQuote.startsWith(':') ||
-            afterQuote.length === 0;
-
-          if (isEndOfString) {
-            // This is the end of string
-            inString = false;
-            result.push(char);
-          } else {
-            // This is an unescaped quote inside string - escape it
-            result.push('\\"');
-          }
-        }
-      } else {
-        result.push(char);
-      }
-      i++;
-    }
-
-    return result.join('');
   }
 }

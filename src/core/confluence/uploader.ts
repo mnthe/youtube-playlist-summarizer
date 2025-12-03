@@ -97,7 +97,11 @@ export class ConfluenceUploader {
     onProgress?.('인덱스 페이지 업데이트 중...');
     const indexContent = this.converter.convertToIndexPage(
       playlistTitle,
-      videoPages.map((vp) => ({ title: vp.title, pageId: vp.pageId }))
+      videoPages.map((vp) => ({
+        title: vp.title,
+        pageId: vp.pageId,
+        pageTitle: vp.title,
+      }))
     );
 
     const currentIndexPage = await this.client.getPage(indexPage.id);
@@ -170,6 +174,7 @@ export class ConfluenceUploader {
     const attachments: string[] = [];
     try {
       const screenshotFiles = await readdir(screenshotDir);
+      callbacks.onProgress?.(`스크린샷 ${screenshotFiles.length}개 발견: ${screenshotDir}`);
 
       for (const fileName of screenshotFiles) {
         if (!fileName.endsWith('.png') && !fileName.endsWith('.jpg')) {
@@ -182,15 +187,35 @@ export class ConfluenceUploader {
           attachments.push(fileName);
           onAttachmentUploaded?.(fileName);
         } catch (error) {
-          // Attachment might already exist, continue
           const message = error instanceof Error ? error.message : String(error);
-          if (!message.includes('already exists')) {
-            throw error;
+          // Attachment might already exist, continue
+          if (message.includes('already exists') || message.includes('Cannot add a new attachment with same file name')) {
+            callbacks.onProgress?.(`스크린샷 이미 존재: ${fileName}`);
+            attachments.push(fileName);
+          } else {
+            callbacks.onError?.(`스크린샷 업로드 실패 (${fileName}): ${message}`);
           }
         }
       }
-    } catch {
+    } catch (error) {
       // Screenshots directory might not exist
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('ENOENT')) {
+        callbacks.onError?.(`스크린샷 디렉토리 읽기 실패: ${message}`);
+      }
+    }
+
+    // Re-update page content after attachments are uploaded
+    // This ensures Confluence can properly resolve image references
+    if (attachments.length > 0) {
+      callbacks.onProgress?.(`페이지 내용 재업데이트 중 (첨부파일 참조 갱신)...`);
+      const currentPage = await this.client.getPage(page.id);
+      await this.client.updatePage(
+        page.id,
+        video.title,
+        confluenceContent,
+        currentPage.version || 1
+      );
     }
 
     return {
