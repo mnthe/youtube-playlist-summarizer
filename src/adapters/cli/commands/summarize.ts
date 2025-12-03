@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { config as loadEnv } from 'dotenv';
 import { join } from 'path';
+import { readdir, readFile, access } from 'fs/promises';
 import { Summarizer } from '../../../core/index.js';
 import { ConfluenceUploader } from '../../../core/confluence/index.js';
 import type { SummarizerConfig, ConfluenceConfig } from '../../../types/index.js';
@@ -20,8 +21,15 @@ export function createSummarizeCommand(): Command {
     .option('-r, --retry <number>', '재시도 횟수', '3')
     .option('--verbose', '상세 로그 출력')
     .option('--upload <wikiUrl>', 'Confluence 위키 페이지 URL (하위 페이지로 업로드)')
+    .option('--upload-only', '요약 없이 기존 출력물만 Confluence에 업로드')
     .option('--test', '테스트 모드: 마지막 영상 1개만 처리')
     .action(async (options) => {
+      // Upload-only 모드
+      if (options.uploadOnly) {
+        await handleUploadOnly(options);
+        return;
+      }
+
       const youtubeApiKey = process.env.YOUTUBE_API_KEY;
       const projectId = process.env.GOOGLE_CLOUD_PROJECT;
       const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
@@ -118,7 +126,12 @@ export function createSummarizeCommand(): Command {
         if (confluenceConfig && options.upload) {
           console.log('\n📤 Confluence 업로드 시작...');
 
-          const uploader = new ConfluenceUploader(confluenceConfig);
+          const uploader = new ConfluenceUploader(confluenceConfig, {
+            onRetry: (attempt, maxRetries, error) => {
+              console.warn(`⚠️ Confluence API 재시도 (${attempt}/${maxRetries}):`);
+              console.warn(`   ${error}`);
+            },
+          });
           const uploadCallbacks = {
             onProgress: (message: string) => console.log(`ℹ️  ${message}`),
             onPageCreated: (title: string, pageId: string) =>
@@ -167,4 +180,139 @@ export function createSummarizeCommand(): Command {
     });
 
   return command;
+}
+
+interface PlaylistState {
+  playlistId: string;
+  playlistTitle: string;
+  videos: Record<string, { title: string; outputDir: string }>;
+}
+
+async function handleUploadOnly(options: {
+  upload?: string;
+  output: string;
+  playlist?: string;
+  verbose?: boolean;
+}): Promise<void> {
+  if (!options.upload) {
+    console.error('❌ --upload-only는 --upload 옵션과 함께 사용해야 합니다.');
+    process.exit(1);
+  }
+
+  const confluenceEmail = process.env.CONFLUENCE_EMAIL;
+  const confluenceApiToken = process.env.CONFLUENCE_API_TOKEN;
+
+  if (!confluenceEmail || !confluenceApiToken) {
+    console.error('❌ Confluence 업로드를 위해 CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN 환경변수가 필요합니다.');
+    process.exit(1);
+  }
+
+  const urlMatch = options.upload.match(/^(https:\/\/[^/]+)/);
+  if (!urlMatch) {
+    console.error('❌ 유효하지 않은 Confluence URL입니다.');
+    process.exit(1);
+  }
+
+  const confluenceConfig: ConfluenceConfig = {
+    baseUrl: urlMatch[1],
+    email: confluenceEmail,
+    apiToken: confluenceApiToken,
+  };
+
+  try {
+    // Find playlist directory
+    let playlistDir: string | null = null;
+    let playlistTitle: string | null = null;
+    let videos: Array<{ id: string; title: string; outputDir: string }> = [];
+
+    if (options.playlist) {
+      // Extract playlist ID from URL
+      const playlistIdMatch = options.playlist.match(/[?&]list=([^&]+)/);
+      if (playlistIdMatch) {
+        const playlistId = playlistIdMatch[1];
+        playlistDir = join(options.output, `playlist-${playlistId}`);
+      }
+    }
+
+    if (!playlistDir) {
+      // Find first playlist directory in output
+      const outputDirs = await readdir(options.output);
+      const playlistDirs = outputDirs.filter(d => d.startsWith('playlist-'));
+
+      if (playlistDirs.length === 0) {
+        console.error(`❌ 재생목록 디렉토리를 찾을 수 없습니다: ${options.output}`);
+        process.exit(1);
+      }
+
+      if (playlistDirs.length > 1) {
+        console.log('📂 발견된 재생목록:');
+        for (const dir of playlistDirs) {
+          console.log(`   - ${dir}`);
+        }
+        console.error('❌ 여러 재생목록이 있습니다. --playlist 옵션으로 지정해주세요.');
+        process.exit(1);
+      }
+
+      playlistDir = join(options.output, playlistDirs[0]);
+    }
+
+    // Read state.json
+    const statePath = join(playlistDir, 'state.json');
+    try {
+      await access(statePath);
+      const stateContent = await readFile(statePath, 'utf-8');
+      const state = JSON.parse(stateContent) as PlaylistState;
+      playlistTitle = state.playlistTitle;
+      videos = Object.entries(state.videos).map(([id, v]) => ({
+        id,
+        title: v.title,
+        outputDir: v.outputDir,
+      }));
+      console.log(`📂 재생목록: ${playlistTitle} (${videos.length}개 영상)`);
+    } catch {
+      console.error(`❌ state.json을 찾을 수 없습니다: ${statePath}`);
+      process.exit(1);
+    }
+
+    console.log('\n📤 Confluence 업로드 시작...');
+
+    const uploader = new ConfluenceUploader(confluenceConfig, {
+      onRetry: (attempt, maxRetries, error) => {
+        console.warn(`⚠️ Confluence API 재시도 (${attempt}/${maxRetries}):`);
+        console.warn(`   ${error}`);
+      },
+    });
+
+    const uploadCallbacks = {
+      onProgress: (message: string) => console.log(`ℹ️  ${message}`),
+      onPageCreated: (title: string, pageId: string) =>
+        console.log(`📄 페이지 생성됨: ${title} (${pageId})`),
+      onPageUpdated: (title: string, pageId: string) =>
+        console.log(`🔄 페이지 업데이트됨: ${title} (${pageId})`),
+      onAttachmentUploaded: (fileName: string) =>
+        options.verbose && console.log(`📎 첨부: ${fileName}`),
+      onError: (message: string) => console.error(`⚠️  ${message}`),
+    };
+
+    const result = await uploader.uploadPlaylist(
+      options.upload,
+      playlistDir,
+      playlistTitle!,
+      videos,
+      uploadCallbacks
+    );
+
+    console.log(`\n🔗 인덱스 페이지: ${result.indexPageUrl}`);
+    console.log(`✅ 업로드 완료! ${result.videoPages.length}개 영상 업로드됨`);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error(`❌ 오류: ${error.message}`);
+      if (options.verbose && error.stack) {
+        console.error(`📋 Stack trace:\n${error.stack}`);
+      }
+    } else {
+      console.error('❌ 오류:', error);
+    }
+    process.exit(1);
+  }
 }

@@ -6,14 +6,34 @@ import type {
   ConfluenceAttachment,
 } from '../../types/index.js';
 
+export interface ConfluenceClientOptions {
+  maxRetries?: number;
+  retryDelayMs?: number;
+  onRetry?: (attempt: number, maxRetries: number, error: string) => void;
+}
+
 export class ConfluenceClient {
   private baseUrl: string;
   private authHeader: string;
+  private maxRetries: number;
+  private retryDelayMs: number;
+  private onRetry?: (attempt: number, maxRetries: number, error: string) => void;
 
-  constructor(config: ConfluenceConfig) {
+  constructor(config: ConfluenceConfig, options: ConfluenceClientOptions = {}) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     const credentials = Buffer.from(`${config.email}:${config.apiToken}`).toString('base64');
     this.authHeader = `Basic ${credentials}`;
+    this.maxRetries = options.maxRetries ?? 3;
+    this.retryDelayMs = options.retryDelayMs ?? 5000;
+    this.onRetry = options.onRetry;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private isRetryableStatus(status: number): boolean {
+    return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
   }
 
   private async request<T>(
@@ -21,23 +41,65 @@ export class ConfluenceClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        Authorization: this.authHeader,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        ...options.headers,
-      },
-    });
+    let lastError: Error | null = null;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Confluence API error (${response.status}): ${errorText}`);
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          ...options,
+          headers: {
+            Authorization: this.authHeader,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            ...options.headers,
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          const error = new Error(`Confluence API error (${response.status}): ${errorText}`);
+
+          if (this.isRetryableStatus(response.status) && attempt < this.maxRetries) {
+            const delayMs = this.retryDelayMs * Math.pow(2, attempt);
+            this.onRetry?.(attempt + 1, this.maxRetries + 1, error.message);
+            await this.sleep(delayMs);
+            lastError = error;
+            continue;
+          }
+
+          throw error;
+        }
+
+        const text = await response.text();
+        return text ? JSON.parse(text) : ({} as T);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        // Network errors - retry
+        if (attempt < this.maxRetries && this.isNetworkError(lastError)) {
+          const delayMs = this.retryDelayMs * Math.pow(2, attempt);
+          this.onRetry?.(attempt + 1, this.maxRetries + 1, lastError.message);
+          await this.sleep(delayMs);
+          continue;
+        }
+
+        throw lastError;
+      }
     }
 
-    const text = await response.text();
-    return text ? JSON.parse(text) : ({} as T);
+    throw lastError || new Error('Request failed after retries');
+  }
+
+  private isNetworkError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('fetch failed') ||
+      message.includes('network') ||
+      message.includes('timeout') ||
+      message.includes('econnreset') ||
+      message.includes('econnrefused') ||
+      message.includes('socket hang up')
+    );
   }
 
   parsePageUrl(url: string): { baseUrl: string; pageId: string } {
@@ -154,39 +216,67 @@ export class ConfluenceClient {
     fileName: string
   ): Promise<ConfluenceAttachment> {
     const fileBuffer = await readFile(filePath);
-    const blob = new Blob([fileBuffer]);
-
-    const formData = new FormData();
-    formData.append('file', blob, fileName);
-
     const url = `${this.baseUrl}/wiki/rest/api/content/${pageId}/child/attachment`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: this.authHeader,
-        'X-Atlassian-Token': 'nocheck',
-      },
-      body: formData,
-    });
+    let lastError: Error | null = null;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to upload attachment (${response.status}): ${errorText}`);
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        const blob = new Blob([fileBuffer]);
+        const formData = new FormData();
+        formData.append('file', blob, fileName);
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: this.authHeader,
+            'X-Atlassian-Token': 'nocheck',
+          },
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          const error = new Error(`Failed to upload attachment (${response.status}): ${errorText}`);
+
+          if (this.isRetryableStatus(response.status) && attempt < this.maxRetries) {
+            const delayMs = this.retryDelayMs * Math.pow(2, attempt);
+            this.onRetry?.(attempt + 1, this.maxRetries + 1, error.message);
+            await this.sleep(delayMs);
+            lastError = error;
+            continue;
+          }
+
+          throw error;
+        }
+
+        const result = (await response.json()) as {
+          results?: Array<{ id: string; title: string; mediaType: string }>;
+          id?: string;
+          title?: string;
+          mediaType?: string;
+        };
+        const attachment = result.results?.[0] || result;
+
+        return {
+          id: attachment.id || '',
+          title: attachment.title || '',
+          mediaType: attachment.mediaType || '',
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        if (attempt < this.maxRetries && this.isNetworkError(lastError)) {
+          const delayMs = this.retryDelayMs * Math.pow(2, attempt);
+          this.onRetry?.(attempt + 1, this.maxRetries + 1, lastError.message);
+          await this.sleep(delayMs);
+          continue;
+        }
+
+        throw lastError;
+      }
     }
 
-    const result = (await response.json()) as {
-      results?: Array<{ id: string; title: string; mediaType: string }>;
-      id?: string;
-      title?: string;
-      mediaType?: string;
-    };
-    const attachment = result.results?.[0] || result;
-
-    return {
-      id: attachment.id || '',
-      title: attachment.title || '',
-      mediaType: attachment.mediaType || '',
-    };
+    throw lastError || new Error('Upload failed after retries');
   }
 
   async getChildPages(pageId: string): Promise<ConfluencePage[]> {

@@ -10,6 +10,7 @@ export interface UploadCallbacks {
   onPageUpdated?: (title: string, pageId: string) => void;
   onAttachmentUploaded?: (fileName: string) => void;
   onError?: (message: string) => void;
+  onRetry?: (attempt: number, maxRetries: number, error: string) => void;
 }
 
 export interface UploadResult {
@@ -27,9 +28,18 @@ export interface UploadResult {
 export class ConfluenceUploader {
   private client: ConfluenceClient;
   private converter: MarkdownToConfluenceConverter;
+  private onRetry?: (attempt: number, maxRetries: number, error: string) => void;
 
-  constructor(config: ConfluenceConfig) {
-    this.client = new ConfluenceClient(config);
+  constructor(
+    config: ConfluenceConfig,
+    options: { onRetry?: (attempt: number, maxRetries: number, error: string) => void } = {}
+  ) {
+    this.onRetry = options.onRetry;
+    this.client = new ConfluenceClient(config, {
+      maxRetries: 3,
+      retryDelayMs: 5000,
+      onRetry: this.onRetry,
+    });
     this.converter = new MarkdownToConfluenceConverter();
   }
 
