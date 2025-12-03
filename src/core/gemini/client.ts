@@ -1,4 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
+import { writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import type { VideoSummary, TimestampSection } from '../../types/index.js';
 import { createSystemPrompt, createUserPrompt } from './prompts.js';
 
@@ -68,6 +70,7 @@ export class GeminiClient {
           model: this.modelName,
           config: {
             systemInstruction: systemPrompt,
+            maxOutputTokens: 65536,
           },
           contents: [ytVideo, { text: userPrompt }],
         });
@@ -152,9 +155,19 @@ export class GeminiClient {
         keyPoints: parsed.keyPoints || [],
       };
     } catch (error) {
-      // Show first 200 chars of response for debugging
-      const preview = cleanText.slice(0, 200);
-      throw new Error(`Failed to parse Gemini response. Preview: "${preview}..."`);
+      // Dump response to temp file for debugging
+      const debugDir = '/tmp/yt-summarize/debug';
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const debugFile = join(debugDir, `gemini-response-${timestamp}.txt`);
+
+      try {
+        mkdirSync(debugDir, { recursive: true });
+        writeFileSync(debugFile, cleanText, 'utf-8');
+      } catch {
+        // Ignore write errors
+      }
+
+      throw new Error(`Failed to parse Gemini response. Debug file: ${debugFile}`);
     }
   }
 

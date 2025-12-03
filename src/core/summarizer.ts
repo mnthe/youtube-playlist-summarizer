@@ -130,7 +130,15 @@ export class Summarizer {
     }
 
     // Get video details for pending videos
-    const videos = await this.youtube.getVideoDetails(pendingVideoIds);
+    let videoIdsToProcess = pendingVideoIds;
+
+    // Test mode: only process the last video
+    if (config.testMode) {
+      videoIdsToProcess = [pendingVideoIds[pendingVideoIds.length - 1]];
+      onProgress?.(`🧪 테스트 모드: 마지막 영상만 처리 (${videoIdsToProcess[0]})`);
+    }
+
+    const videos = await this.youtube.getVideoDetails(videoIdsToProcess);
 
     // Process videos with concurrency control
     const concurrency = config.concurrency || 1;

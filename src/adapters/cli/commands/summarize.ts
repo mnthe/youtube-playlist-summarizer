@@ -19,6 +19,7 @@ export function createSummarizeCommand(): Command {
     .option('-r, --retry <number>', '재시도 횟수', '3')
     .option('--verbose', '상세 로그 출력')
     .option('--upload <wikiUrl>', 'Confluence 위키 페이지 URL (하위 페이지로 업로드)')
+    .option('--test', '테스트 모드: 마지막 영상 1개만 처리')
     .action(async (options) => {
       const youtubeApiKey = process.env.YOUTUBE_API_KEY;
       const projectId = process.env.GOOGLE_CLOUD_PROJECT;
@@ -72,7 +73,12 @@ export function createSummarizeCommand(): Command {
         concurrency: parseInt(options.concurrency, 10),
         withScreenshots: options.screenshots !== false,
         retryCount: parseInt(options.retry, 10),
+        testMode: options.test || false,
       };
+
+      if (options.test) {
+        console.log('🧪 테스트 모드: 마지막 영상 1개만 처리합니다.');
+      }
 
       const summarizer = new Summarizer(youtubeApiKey, { projectId, location });
 
@@ -85,8 +91,12 @@ export function createSummarizeCommand(): Command {
           console.log(`\n🎬 [${index}/${total}] 시작: ${video.title}`),
         onVideoComplete: (video: { title: string }, index: number, total: number) =>
           console.log(`✅ [${index}/${total}] 완료: ${video.title}`),
-        onVideoError: (video: { title: string }, error: Error) =>
-          console.error(`❌ 오류 (${video.title}): ${error.message}`),
+        onVideoError: (video: { title: string }, error: Error) => {
+          console.error(`❌ 오류 (${video.title}): ${error.message}`);
+          if (options.verbose && error.stack) {
+            console.error(`📋 Stack trace:\n${error.stack}`);
+          }
+        },
       };
 
       try {
@@ -136,7 +146,17 @@ export function createSummarizeCommand(): Command {
           }
         }
       } catch (error) {
-        console.error('❌ 오류:', error instanceof Error ? error.message : error);
+        if (error instanceof Error) {
+          console.error(`❌ 오류: ${error.message}`);
+          if (options.verbose && error.stack) {
+            console.error(`📋 Stack trace:\n${error.stack}`);
+          }
+          if (error.cause) {
+            console.error(`🔗 Cause: ${error.cause}`);
+          }
+        } else {
+          console.error('❌ 오류:', error);
+        }
         process.exit(1);
       }
     });

@@ -11,4 +11,5 @@ export interface SummarizerConfig {
   concurrency: number;
   withScreenshots: boolean;
   retryCount: number;
+  testMode?: boolean;
 }
