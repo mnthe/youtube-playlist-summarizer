@@ -1,4 +1,9 @@
-export { Summarizer, type SummarizerCallbacks } from './summarizer.js';
+export {
+  Summarizer,
+  type SummarizerCallbacks,
+  type PlaylistSummaryResult,
+  type VideoSummaryResult,
+} from './summarizer.js';
 export { YouTubeClient } from './youtube/index.js';
 export { GeminiClient } from './gemini/index.js';
 export { ScreenshotCapturer } from './screenshot/index.js';

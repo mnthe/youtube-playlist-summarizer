@@ -1,7 +1,9 @@
 import { Command } from 'commander';
 import { config as loadEnv } from 'dotenv';
+import { join } from 'path';
 import { Summarizer } from '../../../core/index.js';
-import type { SummarizerConfig } from '../../../types/index.js';
+import { ConfluenceUploader } from '../../../core/confluence/index.js';
+import type { SummarizerConfig, ConfluenceConfig } from '../../../types/index.js';
 
 loadEnv();
 
@@ -16,6 +18,7 @@ export function createSummarizeCommand(): Command {
     .option('--no-screenshots', '스크린샷 제외')
     .option('-r, --retry <number>', '재시도 횟수', '3')
     .option('--verbose', '상세 로그 출력')
+    .option('--upload <wikiUrl>', 'Confluence 위키 페이지 URL (하위 페이지로 업로드)')
     .action(async (options) => {
       const youtubeApiKey = process.env.YOUTUBE_API_KEY;
       const projectId = process.env.GOOGLE_CLOUD_PROJECT;
@@ -34,6 +37,31 @@ export function createSummarizeCommand(): Command {
       if (!options.playlist && !options.video) {
         console.error('❌ --playlist 또는 --video 옵션이 필요합니다.');
         process.exit(1);
+      }
+
+      // Confluence 업로드 설정 확인
+      let confluenceConfig: ConfluenceConfig | null = null;
+      if (options.upload) {
+        const confluenceEmail = process.env.CONFLUENCE_EMAIL;
+        const confluenceApiToken = process.env.CONFLUENCE_API_TOKEN;
+
+        if (!confluenceEmail || !confluenceApiToken) {
+          console.error('❌ Confluence 업로드를 위해 CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN 환경변수가 필요합니다.');
+          process.exit(1);
+        }
+
+        // Extract base URL from the wiki page URL
+        const urlMatch = options.upload.match(/^(https:\/\/[^/]+)/);
+        if (!urlMatch) {
+          console.error('❌ 유효하지 않은 Confluence URL입니다.');
+          process.exit(1);
+        }
+
+        confluenceConfig = {
+          baseUrl: urlMatch[1],
+          email: confluenceEmail,
+          apiToken: confluenceApiToken,
+        };
       }
 
       const config: SummarizerConfig = {
@@ -62,10 +90,50 @@ export function createSummarizeCommand(): Command {
       };
 
       try {
+        let playlistInfo: { id: string; title: string; videos: Array<{ id: string; title: string; outputDir: string }> } | null = null;
+        let singleVideoInfo: { title: string; outputDir: string } | null = null;
+
         if (options.playlist) {
-          await summarizer.summarizePlaylist(config, callbacks);
+          playlistInfo = await summarizer.summarizePlaylist(config, callbacks);
         } else if (options.video) {
-          await summarizer.summarizeVideo(options.video, config, callbacks);
+          singleVideoInfo = await summarizer.summarizeVideo(options.video, config, callbacks);
+        }
+
+        // Confluence 업로드
+        if (confluenceConfig && options.upload) {
+          console.log('\n📤 Confluence 업로드 시작...');
+
+          const uploader = new ConfluenceUploader(confluenceConfig);
+          const uploadCallbacks = {
+            onProgress: (message: string) => console.log(`ℹ️  ${message}`),
+            onPageCreated: (title: string, pageId: string) =>
+              console.log(`📄 페이지 생성됨: ${title} (${pageId})`),
+            onPageUpdated: (title: string, pageId: string) =>
+              console.log(`🔄 페이지 업데이트됨: ${title} (${pageId})`),
+            onAttachmentUploaded: (fileName: string) =>
+              options.verbose && console.log(`📎 첨부: ${fileName}`),
+            onError: (message: string) => console.error(`⚠️  ${message}`),
+          };
+
+          if (playlistInfo) {
+            const playlistDir = join(config.outputDir, `playlist-${playlistInfo.id}`);
+            const result = await uploader.uploadPlaylist(
+              options.upload,
+              playlistDir,
+              playlistInfo.title,
+              playlistInfo.videos,
+              uploadCallbacks
+            );
+            console.log(`\n🔗 인덱스 페이지: ${result.indexPageUrl}`);
+          } else if (singleVideoInfo) {
+            const result = await uploader.uploadSingleVideo(
+              options.upload,
+              singleVideoInfo.outputDir,
+              singleVideoInfo.title,
+              uploadCallbacks
+            );
+            console.log(`\n🔗 페이지: ${result.pageUrl}`);
+          }
         }
       } catch (error) {
         console.error('❌ 오류:', error instanceof Error ? error.message : error);

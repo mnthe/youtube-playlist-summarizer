@@ -14,6 +14,21 @@ export interface SummarizerCallbacks {
   onVideoError?: (video: VideoInfo, error: Error) => void;
 }
 
+export interface PlaylistSummaryResult {
+  id: string;
+  title: string;
+  videos: Array<{
+    id: string;
+    title: string;
+    outputDir: string;
+  }>;
+}
+
+export interface VideoSummaryResult {
+  title: string;
+  outputDir: string;
+}
+
 export class Summarizer {
   private youtube: YouTubeClient;
   private gemini: GeminiClient;
@@ -45,7 +60,7 @@ export class Summarizer {
   async summarizePlaylist(
     config: SummarizerConfig,
     callbacks: SummarizerCallbacks = {}
-  ): Promise<void> {
+  ): Promise<PlaylistSummaryResult> {
     const { onProgress, onVideoStart, onVideoComplete, onVideoError } = callbacks;
 
     if (!config.playlistUrl) {
@@ -98,9 +113,20 @@ export class Summarizer {
     const pendingVideoIds = stateManager.getPendingVideos();
     onProgress?.(`처리 대기 중: ${pendingVideoIds.length}개 영상`);
 
+    // Build result with all videos (not just pending)
+    const allVideoStates = Object.entries(state.videos).map(([id, vs]) => ({
+      id,
+      title: vs.title,
+      outputDir: vs.outputDir,
+    }));
+
     if (pendingVideoIds.length === 0) {
       onProgress?.('모든 영상이 이미 처리되었습니다.');
-      return;
+      return {
+        id: playlistId,
+        title: playlistInfo.title,
+        videos: allVideoStates,
+      };
     }
 
     // Get video details for pending videos
@@ -261,13 +287,25 @@ export class Summarizer {
     onProgress?.(
       `완료! 성공: ${stats.completed}, 실패: ${stats.failed}, 대기: ${stats.pending}`
     );
+
+    // Get updated state for return value
+    const finalState = stateManager.getState()!;
+    return {
+      id: playlistId,
+      title: playlistInfo.title,
+      videos: Object.entries(finalState.videos).map(([id, vs]) => ({
+        id,
+        title: vs.title,
+        outputDir: vs.outputDir,
+      })),
+    };
   }
 
   async summarizeVideo(
     videoUrl: string,
     config: Omit<SummarizerConfig, 'playlistUrl'>,
     callbacks: SummarizerCallbacks = {}
-  ): Promise<void> {
+  ): Promise<VideoSummaryResult> {
     const { onProgress } = callbacks;
 
     const videoId = this.youtube.parseVideoId(videoUrl);
@@ -326,5 +364,10 @@ export class Summarizer {
     }
 
     onProgress?.('완료!');
+
+    return {
+      title: video.title,
+      outputDir,
+    };
   }
 }
