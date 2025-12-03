@@ -2,8 +2,20 @@ export class MarkdownToConfluenceConverter {
   convert(markdown: string): string {
     let html = markdown;
 
+    // Normalize line endings - convert literal \n to actual newlines
+    html = html.replace(/\\n/g, '\n');
+
     // Remove YAML frontmatter
     html = html.replace(/^---[\s\S]*?---\n*/m, '');
+
+    // Convert code blocks first (before other processing)
+    html = html.replace(
+      /```(\w+)?\n([\s\S]*?)```/g,
+      (_, lang, code) => {
+        const language = lang || 'text';
+        return `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">${language}</ac:parameter><ac:plain-text-body><![CDATA[${code.trim()}]]></ac:plain-text-body></ac:structured-macro>`;
+      }
+    );
 
     // Convert headers (h1-h6)
     html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
@@ -14,57 +26,42 @@ export class MarkdownToConfluenceConverter {
     html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
 
     // Convert images to Confluence attachment format
-    // ![alt](./screenshots/filename.png) -> <ac:image><ri:attachment ri:filename="filename.png"/></ac:image>
     html = html.replace(
       /!\[([^\]]*)\]\(\.\/screenshots\/([^)]+)\)/g,
       '<ac:image ac:thumbnail="true" ac:width="600"><ri:attachment ri:filename="$2"/></ac:image>'
     );
 
     // Convert external images
-    // ![alt](https://...) -> <ac:image><ri:url ri:value="..."/></ac:image>
     html = html.replace(
       /!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g,
       '<ac:image><ri:url ri:value="$2"/></ac:image>'
     );
 
     // Convert links
-    // [text](url) -> <a href="url">text</a>
     html = html.replace(
       /\[([^\]]+)\]\(([^)]+)\)/g,
       '<a href="$2">$1</a>'
     );
 
-    // Convert bold
+    // Convert bold (before italic to handle **text**)
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
 
     // Convert italic
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+    html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+    html = html.replace(/(?<!_)_([^_]+)_(?!_)/g, '<em>$1</em>');
 
     // Convert inline code
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Convert code blocks
-    html = html.replace(
-      /```(\w+)?\n([\s\S]*?)```/g,
-      (_, lang, code) => {
-        const language = lang || 'text';
-        return `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">${language}</ac:parameter><ac:plain-text-body><![CDATA[${code.trim()}]]></ac:plain-text-body></ac:structured-macro>`;
-      }
-    );
-
-    // Convert unordered lists
-    html = this.convertUnorderedLists(html);
-
-    // Convert ordered lists
-    html = this.convertOrderedLists(html);
 
     // Convert horizontal rules
     html = html.replace(/^---$/gm, '<hr/>');
     html = html.replace(/^\*\*\*$/gm, '<hr/>');
 
-    // Convert paragraphs (lines that aren't already HTML)
+    // Convert lists (with nested support)
+    html = this.convertLists(html);
+
+    // Convert paragraphs
     html = this.convertParagraphs(html);
 
     // Clean up extra newlines
@@ -73,63 +70,75 @@ export class MarkdownToConfluenceConverter {
     return html.trim();
   }
 
-  private convertUnorderedLists(html: string): string {
+  private convertLists(html: string): string {
     const lines = html.split('\n');
     const result: string[] = [];
-    let inList = false;
+    const listStack: Array<{ type: 'ul' | 'ol'; indent: number }> = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const match = line.match(/^(\s*)[-*]\s+(.+)$/);
 
-      if (match) {
-        if (!inList) {
-          result.push('<ul>');
-          inList = true;
+      // Match unordered list item: "  - item" or "  * item"
+      // Also handle various indentation styles (spaces, tabs)
+      const ulMatch = line.match(/^(\s*)([-*•])\s+(.+)$/);
+      // Match ordered list item: "  1. item" or "  1) item"
+      const olMatch = line.match(/^(\s*)(\d+)[.)]\s+(.+)$/);
+
+      if (ulMatch || olMatch) {
+        // Normalize indent: treat every 2-4 chars as one level
+        const rawIndent = (ulMatch || olMatch)![1].length;
+        const indent = Math.floor(rawIndent / 2) * 2; // Normalize to even numbers
+        const content = ulMatch ? ulMatch[3] : olMatch![3];
+        const listType = ulMatch ? 'ul' : 'ol';
+
+        // Close lists that are more indented than current
+        while (listStack.length > 0 && listStack[listStack.length - 1].indent > indent) {
+          const closed = listStack.pop()!;
+          result.push(`</${closed.type}>`);
         }
-        result.push(`<li>${match[2]}</li>`);
+
+        // If same indent but different list type, close and open new
+        if (listStack.length > 0 && listStack[listStack.length - 1].indent === indent) {
+          if (listStack[listStack.length - 1].type !== listType) {
+            const closed = listStack.pop()!;
+            result.push(`</${closed.type}>`);
+            result.push(`<${listType}>`);
+            listStack.push({ type: listType, indent });
+          }
+        }
+
+        // Open new list if needed
+        if (listStack.length === 0 || listStack[listStack.length - 1].indent < indent) {
+          result.push(`<${listType}>`);
+          listStack.push({ type: listType, indent });
+        }
+
+        result.push(`<li>${content}</li>`);
       } else {
-        if (inList && line.trim() !== '') {
-          result.push('</ul>');
-          inList = false;
+        // Check if this is a continuation of a list item (non-empty, indented, no list marker)
+        const continuationMatch = line.match(/^(\s{2,})([^-*•\d\s].*)$/);
+        if (continuationMatch && listStack.length > 0) {
+          // Append to previous list item if exists
+          const lastIndex = result.length - 1;
+          if (lastIndex >= 0 && result[lastIndex].startsWith('<li>')) {
+            result[lastIndex] = result[lastIndex].replace('</li>', ` ${continuationMatch[2].trim()}</li>`);
+            continue;
+          }
+        }
+
+        // Not a list item - close all open lists
+        while (listStack.length > 0) {
+          const closed = listStack.pop()!;
+          result.push(`</${closed.type}>`);
         }
         result.push(line);
       }
     }
 
-    if (inList) {
-      result.push('</ul>');
-    }
-
-    return result.join('\n');
-  }
-
-  private convertOrderedLists(html: string): string {
-    const lines = html.split('\n');
-    const result: string[] = [];
-    let inList = false;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const match = line.match(/^(\s*)\d+\.\s+(.+)$/);
-
-      if (match) {
-        if (!inList) {
-          result.push('<ol>');
-          inList = true;
-        }
-        result.push(`<li>${match[2]}</li>`);
-      } else {
-        if (inList && line.trim() !== '') {
-          result.push('</ol>');
-          inList = false;
-        }
-        result.push(line);
-      }
-    }
-
-    if (inList) {
-      result.push('</ol>');
+    // Close any remaining open lists
+    while (listStack.length > 0) {
+      const closed = listStack.pop()!;
+      result.push(`</${closed.type}>`);
     }
 
     return result.join('\n');
@@ -153,11 +162,23 @@ export class MarkdownToConfluenceConverter {
     for (const line of lines) {
       const trimmed = line.trim();
 
-      // Skip if already HTML or empty
+      // Skip if already HTML, empty, or special element
       if (
         trimmed === '' ||
-        trimmed.startsWith('<') ||
-        trimmed.startsWith('</')
+        trimmed.startsWith('<h') ||
+        trimmed.startsWith('</h') ||
+        trimmed.startsWith('<ul') ||
+        trimmed.startsWith('</ul') ||
+        trimmed.startsWith('<ol') ||
+        trimmed.startsWith('</ol') ||
+        trimmed.startsWith('<li') ||
+        trimmed.startsWith('</li') ||
+        trimmed.startsWith('<hr') ||
+        trimmed.startsWith('<p>') ||
+        trimmed.startsWith('</p>') ||
+        trimmed.startsWith('<ac:') ||
+        trimmed.startsWith('<a ') ||
+        trimmed.startsWith('</a>')
       ) {
         flushParagraph();
         if (trimmed !== '') {

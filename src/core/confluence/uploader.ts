@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'fs/promises';
+import { readFile, readdir, access } from 'fs/promises';
 import { join } from 'path';
 import { ConfluenceClient } from './client.js';
 import { MarkdownToConfluenceConverter } from './converter.js';
@@ -130,6 +130,13 @@ export class ConfluenceUploader {
     const videoDir = join(playlistDir, video.outputDir);
     const markdownPath = join(videoDir, 'README.md');
     const screenshotDir = join(videoDir, 'screenshots');
+
+    // Check if README.md exists (video might not be summarized yet)
+    try {
+      await access(markdownPath);
+    } catch {
+      throw new Error(`요약 파일이 없습니다 (아직 처리되지 않음): ${markdownPath}`);
+    }
 
     // Read and convert markdown
     const markdown = await readFile(markdownPath, 'utf-8');

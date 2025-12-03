@@ -51,11 +51,15 @@ You MUST respond with valid JSON in this exact structure:
 2. STRUCTURE: Divide the video into logical sections based on topic changes (aim for 5-15 sections depending on video length).
 3. DETAIL LEVEL: Each section's content should be detailed enough that someone reading it gets the same information as watching that part.
 4. READABILITY & FORMATTING:
-   - Use bullet points (- ) for lists of items, features, or concepts
-   - Use numbered lists (1. 2. 3.) for sequential steps or ranked items
+   - Use ONLY "- " (dash space) for bullet points. Do NOT use "*" or other markers.
+   - Use "1. ", "2. ", "3. " for numbered lists (number, dot, space).
+   - For nested lists, use 2-space indentation per level:
+     Level 1: "- item"
+     Level 2: "  - nested item"
+     Level 3: "    - deeply nested"
    - Use **bold** for key terms or important concepts
    - Keep paragraphs short (2-3 sentences max)
-   - Break complex explanations into sub-points
+   - Each list item should be on its own line
    - Avoid walls of text - structure everything for easy scanning
 5. SPECIFICS: Include all specific details mentioned:
    - Code examples, commands, or syntax
