@@ -74,6 +74,20 @@ You MUST respond with valid JSON in this exact structure:
    - "timestamp": When the speaker STARTS discussing this topic (for YouTube link navigation)
    - "screenshotTimestamp": When the KEY SLIDE or VISUAL appears on screen (for screenshot capture). This is typically when the main slide, diagram, or visual summary is displayed. Usually 30 seconds to 2 minutes after the topic starts.
 
+## CRITICAL: JSON STRING ESCAPING
+
+You MUST properly escape special characters inside JSON string values:
+- Double quotes inside strings: use \\" (e.g., "He said \\"hello\\"")
+- Backslashes: use \\\\
+- Newlines in strings: use \\n (not actual line breaks inside string values)
+- Tabs: use \\t
+
+WRONG: {"content": "Use "quotes" here"}
+CORRECT: {"content": "Use \\"quotes\\" here"}
+
+WRONG: {"content": "Check tag-exists: "Environment" tag"}
+CORRECT: {"content": "Check tag-exists: \\"Environment\\" tag"}
+
 IMPORTANT: Return ONLY valid JSON, no markdown code blocks or additional text.`;
 }
 

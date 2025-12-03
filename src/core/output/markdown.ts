@@ -11,13 +11,13 @@ export interface MarkdownOptions {
 export class MarkdownGenerator {
   generate(video: VideoInfo, summary: VideoSummary, options: MarkdownOptions): string {
     const frontmatter = this.generateFrontmatter(video, options.locale);
-    const description = this.generateDescription(video);
+    const videoLink = this.generateVideoLink(video);
     const summarySection = this.generateSummary(summary, options);
     const keyPoints = this.generateKeyPoints(summary.keyPoints);
 
     return `${frontmatter}
 
-${description}
+${videoLink}
 
 ---
 
@@ -27,6 +27,13 @@ ${summarySection}
 
 ${keyPoints}
 `;
+  }
+
+  private generateVideoLink(video: VideoInfo): string {
+    return `🎬 **[YouTube에서 보기](${video.url})**
+
+- **채널**: ${video.channelTitle}
+- **길이**: ${this.formatDuration(video.durationSeconds)}`;
   }
 
   private generateFrontmatter(video: VideoInfo, locale: string): string {

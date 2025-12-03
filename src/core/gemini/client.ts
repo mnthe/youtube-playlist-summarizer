@@ -130,6 +130,9 @@ export class GeminiClient {
       throw new Error('Received HTML instead of JSON - possible API authentication or permission error');
     }
 
+    // Fix unescaped quotes inside JSON string values
+    cleanText = this.fixUnescapedQuotes(cleanText);
+
     try {
       const parsed = JSON.parse(cleanText);
 
@@ -179,5 +182,53 @@ export class GeminiClient {
       return parts[0] * 60 + parts[1];
     }
     return 0;
+  }
+
+  /**
+   * Fix unescaped quotes inside JSON string values.
+   * Example: {"key": "value with "unescaped" quotes"} -> {"key": "value with \"unescaped\" quotes"}
+   */
+  private fixUnescapedQuotes(json: string): string {
+    // Process character by character to handle quotes inside string values
+    const result: string[] = [];
+    let inString = false;
+    let i = 0;
+
+    while (i < json.length) {
+      const char = json[i];
+      const prevChar = i > 0 ? json[i - 1] : '';
+
+      if (char === '"' && prevChar !== '\\') {
+        if (!inString) {
+          // Starting a string
+          inString = true;
+          result.push(char);
+        } else {
+          // Check if this quote ends the string or is unescaped inside
+          // Look ahead to see if this looks like end of string value
+          const afterQuote = json.slice(i + 1).trimStart();
+          const isEndOfString =
+            afterQuote.startsWith(',') ||
+            afterQuote.startsWith('}') ||
+            afterQuote.startsWith(']') ||
+            afterQuote.startsWith(':') ||
+            afterQuote.length === 0;
+
+          if (isEndOfString) {
+            // This is the end of string
+            inString = false;
+            result.push(char);
+          } else {
+            // This is an unescaped quote inside string - escape it
+            result.push('\\"');
+          }
+        }
+      } else {
+        result.push(char);
+      }
+      i++;
+    }
+
+    return result.join('');
   }
 }
