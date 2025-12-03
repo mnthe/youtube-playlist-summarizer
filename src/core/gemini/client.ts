@@ -51,6 +51,31 @@ export class GeminiClient {
     );
   }
 
+  private getErrorDetail(error: Error): string {
+    const parts: string[] = [error.message];
+
+    // Check for cause (nested error)
+    const cause = (error as Error & { cause?: unknown }).cause;
+    if (cause instanceof Error) {
+      parts.push(`[cause: ${cause.message}]`);
+      // Check for deeper cause
+      const deepCause = (cause as Error & { cause?: unknown }).cause;
+      if (deepCause instanceof Error) {
+        parts.push(`[root: ${deepCause.message}]`);
+      }
+    } else if (cause) {
+      parts.push(`[cause: ${String(cause)}]`);
+    }
+
+    // Check for error code
+    const code = (error as Error & { code?: string }).code;
+    if (code) {
+      parts.push(`[code: ${code}]`);
+    }
+
+    return parts.join(' ');
+  }
+
   async summarizeVideo(videoUrl: string, locale: string): Promise<VideoSummary> {
     const systemPrompt = createSystemPrompt();
     const userPrompt = createUserPrompt(locale);
@@ -96,8 +121,9 @@ export class GeminiClient {
         // Check if we should retry
         if (attempt < this.maxRetries && this.isRetryableError(error)) {
           const delayMs = this.retryDelayMs * Math.pow(2, attempt);
+          const errorDetail = this.getErrorDetail(lastError);
           console.warn(
-            `⚠️ Gemini API request failed (attempt ${attempt + 1}/${this.maxRetries + 1}): ${lastError.message}. Retrying in ${delayMs / 1000}s...`
+            `⚠️ Gemini API request failed (attempt ${attempt + 1}/${this.maxRetries + 1}): ${errorDetail}. Retrying in ${delayMs / 1000}s...`
           );
           await this.sleep(delayMs);
           continue;
