@@ -22,7 +22,7 @@ You MUST respond with valid JSON in this exact structure:
       "screenshotTimestamp": "MM:SS or HH:MM:SS format - when the KEY SLIDE or VISUAL appears (for screenshot capture)",
       "title": "Descriptive section title",
       "summary": "Brief 1-2 sentence summary of this section",
-      "content": "Detailed explanation covering ALL points discussed in this section. Use multiple paragraphs. Include specific examples, code snippets (if applicable), commands, URLs, or technical details mentioned. Do not skip any important information.",
+      "content": "Detailed explanation in STRUCTURED FORMAT. Use bullet points (- ), numbered lists, and subheadings for readability. Break down complex topics into digestible chunks. Include specific examples, code snippets (if applicable), commands, URLs, or technical details. Avoid long prose paragraphs.",
       "keyTakeaways": ["Main point 1", "Main point 2"]
     }
   ],
@@ -50,7 +50,13 @@ You MUST respond with valid JSON in this exact structure:
 1. COMPREHENSIVENESS: Capture the ENTIRE video content, not just highlights. Every significant topic should be documented.
 2. STRUCTURE: Divide the video into logical sections based on topic changes (aim for 5-15 sections depending on video length).
 3. DETAIL LEVEL: Each section's content should be detailed enough that someone reading it gets the same information as watching that part.
-4. READABILITY: Write for a Wiki audience - clear headings, organized information, easy to scan and reference.
+4. READABILITY & FORMATTING:
+   - Use bullet points (- ) for lists of items, features, or concepts
+   - Use numbered lists (1. 2. 3.) for sequential steps or ranked items
+   - Use **bold** for key terms or important concepts
+   - Keep paragraphs short (2-3 sentences max)
+   - Break complex explanations into sub-points
+   - Avoid walls of text - structure everything for easy scanning
 5. SPECIFICS: Include all specific details mentioned:
    - Code examples, commands, or syntax
    - URLs, tools, or resources referenced
