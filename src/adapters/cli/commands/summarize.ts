@@ -15,6 +15,7 @@ export function createSummarizeCommand(): Command {
     .option('-l, --locale <locale>', '출력 언어', 'ko')
     .option('-o, --output <dir>', '출력 디렉토리', './output')
     .option('-c, --concurrency <number>', '동시 처리 수', '1')
+    .option('-m, --model <model>', 'Gemini 모델명', 'gemini-2.5-flash')
     .option('--no-screenshots', '스크린샷 제외')
     .option('-r, --retry <number>', '재시도 횟수', '3')
     .option('--verbose', '상세 로그 출력')
@@ -80,7 +81,11 @@ export function createSummarizeCommand(): Command {
         console.log('🧪 테스트 모드: 마지막 영상 1개만 처리합니다.');
       }
 
-      const summarizer = new Summarizer(youtubeApiKey, { projectId, location });
+      if (options.verbose) {
+        console.log(`🤖 Gemini 모델: ${options.model}`);
+      }
+
+      const summarizer = new Summarizer(youtubeApiKey, { projectId, location, model: options.model });
 
       const callbacks = {
         onProgress: (message: string) => console.log(`ℹ️  ${message}`),

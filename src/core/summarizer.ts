@@ -36,7 +36,7 @@ export class Summarizer {
 
   constructor(
     youtubeApiKey: string,
-    geminiConfig: { projectId: string; location: string }
+    geminiConfig: { projectId: string; location: string; model?: string }
   ) {
     this.youtube = new YouTubeClient(youtubeApiKey);
     this.gemini = new GeminiClient(geminiConfig);
