@@ -1,197 +1,263 @@
-export class MarkdownToConfluenceConverter {
-  convert(markdown: string): string {
-    let html = markdown;
+import { marked, Renderer, Tokens } from 'marked';
 
+export class MarkdownToConfluenceConverter {
+  private renderer: Renderer;
+
+  constructor() {
+    this.renderer = this.createConfluenceRenderer();
+  }
+
+  convert(markdown: string): string {
     // Normalize line endings - convert literal \n to actual newlines
-    html = html.replace(/\\n/g, '\n');
+    let content = markdown.replace(/\\n/g, '\n');
 
     // Remove YAML frontmatter
-    html = html.replace(/^---[\s\S]*?---\n*/m, '');
+    content = content.replace(/^---[\s\S]*?---\n*/m, '');
 
-    // Convert code blocks first (before other processing)
-    html = html.replace(
-      /```(\w+)?\n([\s\S]*?)```/g,
-      (_, lang, code) => {
-        const language = lang || 'text';
-        return `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">${language}</ac:parameter><ac:plain-text-body><![CDATA[${code.trim()}]]></ac:plain-text-body></ac:structured-macro>`;
-      }
-    );
+    // Configure marked with our custom renderer
+    marked.setOptions({
+      renderer: this.renderer,
+      gfm: true,
+      breaks: false,
+    });
 
-    // Convert headers (h1-h6)
-    html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>');
-    html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>');
-    html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
-    html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
-    html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
-
-    // Convert images to Confluence attachment format
-    html = html.replace(
-      /!\[([^\]]*)\]\(\.\/screenshots\/([^)]+)\)/g,
-      '<ac:image ac:thumbnail="true" ac:width="600"><ri:attachment ri:filename="$2"/></ac:image>'
-    );
-
-    // Convert external images
-    html = html.replace(
-      /!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g,
-      '<ac:image><ri:url ri:value="$2"/></ac:image>'
-    );
-
-    // Convert links
-    html = html.replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2">$1</a>'
-    );
-
-    // Convert bold (before italic to handle **text**)
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-
-    // Convert italic
-    html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
-    html = html.replace(/(?<!_)_([^_]+)_(?!_)/g, '<em>$1</em>');
-
-    // Convert inline code
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Convert horizontal rules
-    html = html.replace(/^---$/gm, '<hr/>');
-    html = html.replace(/^\*\*\*$/gm, '<hr/>');
-
-    // Convert lists (with nested support)
-    html = this.convertLists(html);
-
-    // Convert paragraphs
-    html = this.convertParagraphs(html);
+    let html = marked.parse(content) as string;
 
     // Clean up extra newlines
     html = html.replace(/\n{3,}/g, '\n\n');
 
+    // Replace YouTube embed placeholders
+    html = html.replace(
+      /___YOUTUBE_EMBED_([a-zA-Z0-9_-]{11})___/g,
+      '<ac:structured-macro ac:name="widget" ac:schema-version="1"><ac:parameter ac:name="url">https://www.youtube.com/watch?v=$1</ac:parameter><ac:parameter ac:name="width">560</ac:parameter><ac:parameter ac:name="height">315</ac:parameter></ac:structured-macro>'
+    );
+
     return html.trim();
   }
 
-  private convertLists(html: string): string {
-    const lines = html.split('\n');
-    const result: string[] = [];
-    const listStack: Array<{ type: 'ul' | 'ol'; indent: number }> = [];
+  private createConfluenceRenderer(): Renderer {
+    const renderer = new Renderer();
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Match unordered list item: "  - item" or "  * item"
-      // Also handle various indentation styles (spaces, tabs)
-      const ulMatch = line.match(/^(\s*)([-*•])\s+(.+)$/);
-      // Match ordered list item: "  1. item" or "  1) item"
-      const olMatch = line.match(/^(\s*)(\d+)[.)]\s+(.+)$/);
-
-      if (ulMatch || olMatch) {
-        // Normalize indent: treat every 2-4 chars as one level
-        const rawIndent = (ulMatch || olMatch)![1].length;
-        const indent = Math.floor(rawIndent / 2) * 2; // Normalize to even numbers
-        const content = ulMatch ? ulMatch[3] : olMatch![3];
-        const listType = ulMatch ? 'ul' : 'ol';
-
-        // Close lists that are more indented than current
-        while (listStack.length > 0 && listStack[listStack.length - 1].indent > indent) {
-          const closed = listStack.pop()!;
-          result.push(`</${closed.type}>`);
-        }
-
-        // If same indent but different list type, close and open new
-        if (listStack.length > 0 && listStack[listStack.length - 1].indent === indent) {
-          if (listStack[listStack.length - 1].type !== listType) {
-            const closed = listStack.pop()!;
-            result.push(`</${closed.type}>`);
-            result.push(`<${listType}>`);
-            listStack.push({ type: listType, indent });
-          }
-        }
-
-        // Open new list if needed
-        if (listStack.length === 0 || listStack[listStack.length - 1].indent < indent) {
-          result.push(`<${listType}>`);
-          listStack.push({ type: listType, indent });
-        }
-
-        result.push(`<li>${content}</li>`);
-      } else {
-        // Check if this is a continuation of a list item (non-empty, indented, no list marker)
-        const continuationMatch = line.match(/^(\s{2,})([^-*•\d\s].*)$/);
-        if (continuationMatch && listStack.length > 0) {
-          // Append to previous list item if exists
-          const lastIndex = result.length - 1;
-          if (lastIndex >= 0 && result[lastIndex].startsWith('<li>')) {
-            result[lastIndex] = result[lastIndex].replace('</li>', ` ${continuationMatch[2].trim()}</li>`);
-            continue;
-          }
-        }
-
-        // Not a list item - close all open lists
-        while (listStack.length > 0) {
-          const closed = listStack.pop()!;
-          result.push(`</${closed.type}>`);
-        }
-        result.push(line);
-      }
-    }
-
-    // Close any remaining open lists
-    while (listStack.length > 0) {
-      const closed = listStack.pop()!;
-      result.push(`</${closed.type}>`);
-    }
-
-    return result.join('\n');
-  }
-
-  private convertParagraphs(html: string): string {
-    const lines = html.split('\n');
-    const result: string[] = [];
-    let paragraphLines: string[] = [];
-
-    const flushParagraph = () => {
-      if (paragraphLines.length > 0) {
-        const text = paragraphLines.join(' ').trim();
-        if (text) {
-          result.push(`<p>${text}</p>`);
-        }
-        paragraphLines = [];
-      }
+    // Headings
+    renderer.heading = ({ text, depth }: Tokens.Heading): string => {
+      return `<h${depth}>${text}</h${depth}>\n`;
     };
 
-    for (const line of lines) {
-      const trimmed = line.trim();
+    // Paragraphs - need to parse inline tokens
+    renderer.paragraph = (token: Tokens.Paragraph): string => {
+      const content = this.parseInlineTokens(token.tokens);
+      return `<p>${content}</p>\n`;
+    };
 
-      // Skip if already HTML, empty, or special element
-      if (
-        trimmed === '' ||
-        trimmed.startsWith('<h') ||
-        trimmed.startsWith('</h') ||
-        trimmed.startsWith('<ul') ||
-        trimmed.startsWith('</ul') ||
-        trimmed.startsWith('<ol') ||
-        trimmed.startsWith('</ol') ||
-        trimmed.startsWith('<li') ||
-        trimmed.startsWith('</li') ||
-        trimmed.startsWith('<hr') ||
-        trimmed.startsWith('<p>') ||
-        trimmed.startsWith('</p>') ||
-        trimmed.startsWith('<ac:') ||
-        trimmed.startsWith('<a ') ||
-        trimmed.startsWith('</a>')
-      ) {
-        flushParagraph();
-        if (trimmed !== '') {
-          result.push(line);
+    // Bold
+    renderer.strong = ({ text }: Tokens.Strong): string => {
+      return `<strong>${text}</strong>`;
+    };
+
+    // Italic
+    renderer.em = ({ text }: Tokens.Em): string => {
+      return `<em>${text}</em>`;
+    };
+
+    // Inline code
+    renderer.codespan = ({ text }: Tokens.Codespan): string => {
+      return `<code>${text}</code>`;
+    };
+
+    // Code blocks
+    renderer.code = ({ text, lang }: Tokens.Code): string => {
+      const language = lang || 'text';
+      const escapedCode = this.escapeForCdata(text);
+      return `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">${language}</ac:parameter><ac:plain-text-body><![CDATA[${escapedCode}]]></ac:plain-text-body></ac:structured-macro>\n`;
+    };
+
+    // Lists - marked passes the token, we need to render items ourselves
+    renderer.list = (token: Tokens.List): string => {
+      const tag = token.ordered ? 'ol' : 'ul';
+      // Render each list item using the parser
+      const itemsHtml = token.items
+        .map((item) => renderer.listitem(item))
+        .join('');
+      return `<${tag}>\n${itemsHtml}</${tag}>\n`;
+    };
+
+    // List items
+    renderer.listitem = (item: Tokens.ListItem): string => {
+      // Parse the item's tokens to get the rendered content
+      let content = '';
+      for (const token of item.tokens) {
+        if (token.type === 'text') {
+          // Text token may have inline tokens
+          const textToken = token as Tokens.Text & { tokens?: Tokens.Generic[] };
+          if (textToken.tokens) {
+            content += this.parseInlineTokens(textToken.tokens);
+          } else {
+            content += textToken.text;
+          }
+        } else if (token.type === 'paragraph') {
+          // Don't wrap in <p> for list items, but parse inline tokens
+          const paraToken = token as Tokens.Paragraph;
+          content += this.parseInlineTokens(paraToken.tokens);
+        } else if (token.type === 'list') {
+          // Nested list - recursively render
+          content += renderer.list(token as Tokens.List);
+        } else {
+          // For other tokens, use marked's parser
+          content += marked.parser([token]);
         }
-      } else {
-        paragraphLines.push(trimmed);
+      }
+      return `<li>${content}</li>\n`;
+    };
+
+    // Links - with YouTube embed support
+    renderer.link = ({ href, text }: Tokens.Link): string => {
+      // Check if this is a YouTube link that should be embedded
+      const youtubeMatch = href.match(
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+      );
+
+      if (youtubeMatch) {
+        const videoId = youtubeMatch[1];
+        // Return both embed and link
+        return `<ac:structured-macro ac:name="widget" ac:schema-version="1"><ac:parameter ac:name="url">https://www.youtube.com/watch?v=${videoId}</ac:parameter><ac:parameter ac:name="width">560</ac:parameter><ac:parameter ac:name="height">315</ac:parameter></ac:structured-macro><p><a href="${href}">${text}</a></p>`;
+      }
+
+      return `<a href="${href}">${text}</a>`;
+    };
+
+    // Images
+    renderer.image = ({ href }: Tokens.Image): string => {
+      if (href.startsWith('./screenshots/')) {
+        const filename = href.replace('./screenshots/', '');
+        return `<ac:image ac:thumbnail="true" ac:width="600"><ri:attachment ri:filename="${filename}"/></ac:image>`;
+      }
+      if (href.startsWith('http://') || href.startsWith('https://')) {
+        return `<ac:image><ri:url ri:value="${href}"/></ac:image>`;
+      }
+      // Local file reference
+      return `<ac:image ac:thumbnail="true" ac:width="600"><ri:attachment ri:filename="${href}"/></ac:image>`;
+    };
+
+    // Horizontal rule
+    renderer.hr = (): string => {
+      return '<hr/>\n';
+    };
+
+    // Blockquote
+    renderer.blockquote = ({ text }: Tokens.Blockquote): string => {
+      return `<blockquote>${text}</blockquote>\n`;
+    };
+
+    // Line break
+    renderer.br = (): string => {
+      return '<br/>';
+    };
+
+    // Delete (strikethrough)
+    renderer.del = ({ text }: Tokens.Del): string => {
+      return `<del>${text}</del>`;
+    };
+
+    // Table
+    renderer.table = (token: Tokens.Table): string => {
+      let headerHtml = '<tr>';
+      for (const cell of token.header) {
+        headerHtml += `<th>${cell.text}</th>`;
+      }
+      headerHtml += '</tr>\n';
+
+      let bodyHtml = '';
+      for (const row of token.rows) {
+        bodyHtml += '<tr>';
+        for (const cell of row) {
+          bodyHtml += `<td>${cell.text}</td>`;
+        }
+        bodyHtml += '</tr>\n';
+      }
+
+      return `<table><thead>${headerHtml}</thead><tbody>${bodyHtml}</tbody></table>\n`;
+    };
+
+    renderer.tablerow = ({ text }: Tokens.TableRow): string => {
+      return `<tr>${text}</tr>\n`;
+    };
+
+    renderer.tablecell = ({ text, header }: Tokens.TableCell): string => {
+      const tag = header ? 'th' : 'td';
+      return `<${tag}>${text}</${tag}>`;
+    };
+
+    return renderer;
+  }
+
+  private escapeForCdata(text: string): string {
+    // CDATA sections cannot contain "]]>" so we need to escape it
+    return text.replace(/\]\]>/g, ']]]]><![CDATA[>');
+  }
+
+  private parseInlineTokens(tokens: Tokens.Generic[] | undefined): string {
+    if (!tokens) return '';
+
+    let result = '';
+    for (const token of tokens) {
+      switch (token.type) {
+        case 'text':
+          result += (token as Tokens.Text).text;
+          break;
+        case 'strong':
+          result += `<strong>${this.parseInlineTokens((token as Tokens.Strong).tokens)}</strong>`;
+          break;
+        case 'em':
+          result += `<em>${this.parseInlineTokens((token as Tokens.Em).tokens)}</em>`;
+          break;
+        case 'codespan':
+          result += `<code>${(token as Tokens.Codespan).text}</code>`;
+          break;
+        case 'link': {
+          const linkToken = token as Tokens.Link;
+          const href = linkToken.href;
+          const text = this.parseInlineTokens(linkToken.tokens);
+
+          // Check for YouTube embed
+          const youtubeMatch = href.match(
+            /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+          );
+          if (youtubeMatch) {
+            const videoId = youtubeMatch[1];
+            // Use placeholder that will be replaced after paragraph processing
+            result += `___YOUTUBE_EMBED_${videoId}___ <a href="${href}">${text}</a>`;
+          } else {
+            result += `<a href="${href}">${text}</a>`;
+          }
+          break;
+        }
+        case 'image': {
+          const imgToken = token as Tokens.Image;
+          const href = imgToken.href;
+          if (href.startsWith('./screenshots/')) {
+            const filename = href.replace('./screenshots/', '');
+            result += `<ac:image ac:thumbnail="true" ac:width="600"><ri:attachment ri:filename="${filename}"/></ac:image>`;
+          } else if (href.startsWith('http://') || href.startsWith('https://')) {
+            result += `<ac:image><ri:url ri:value="${href}"/></ac:image>`;
+          } else {
+            result += `<ac:image ac:thumbnail="true" ac:width="600"><ri:attachment ri:filename="${href}"/></ac:image>`;
+          }
+          break;
+        }
+        case 'br':
+          result += '<br/>';
+          break;
+        case 'del':
+          result += `<del>${this.parseInlineTokens((token as Tokens.Del).tokens)}</del>`;
+          break;
+        default:
+          // Fallback: try to get text property
+          if ('text' in token) {
+            result += (token as unknown as { text: string }).text;
+          }
       }
     }
-
-    flushParagraph();
-
-    return result.join('\n');
+    return result;
   }
 
   convertToIndexPage(

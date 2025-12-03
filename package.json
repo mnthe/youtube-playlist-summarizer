@@ -33,6 +33,7 @@
   },
   "homepage": "https://github.com/mnthe/youtube-playlist-summarizer#readme",
   "devDependencies": {
+    "@types/marked": "^5.0.2",
     "@types/node": "^24.10.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
@@ -42,6 +43,7 @@
     "@google/genai": "^1.30.0",
     "commander": "^14.0.2",
     "dotenv": "^17.2.3",
-    "googleapis": "^166.0.0"
+    "googleapis": "^166.0.0",
+    "marked": "^17.0.1"
   }
 }
