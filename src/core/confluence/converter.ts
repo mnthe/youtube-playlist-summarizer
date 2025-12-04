@@ -277,7 +277,7 @@ export class MarkdownToConfluenceConverter {
     content += `<p>총 ${videos.length}개 영상</p>\n\n`;
 
     content += '<table>\n';
-    content += '<thead><tr><th>영상</th><th>요약</th><th>하위 페이지</th></tr></thead>\n';
+    content += '<thead><tr><th>영상</th><th>하위 페이지</th><th>요약</th></tr></thead>\n';
     content += '<tbody>\n';
 
     for (const video of videos) {
@@ -289,10 +289,10 @@ export class MarkdownToConfluenceConverter {
       } else {
         content += `<td>${this.escapeHtml(video.title)}</td>`;
       }
-      // Summary column
-      content += `<td>${video.summary ? this.escapeHtml(video.summary) : ''}</td>`;
       // Page link column
       content += `<td><ac:link><ri:page ri:content-id="${video.pageId}" ri:content-title="${this.escapeHtml(video.pageTitle)}"/><ac:plain-text-link-body><![CDATA[${this.escapeHtml(video.pageTitle)}]]></ac:plain-text-link-body></ac:link></td>`;
+      // Summary column
+      content += `<td>${video.summary ? this.escapeHtml(video.summary) : ''}</td>`;
       content += '</tr>\n';
     }
 

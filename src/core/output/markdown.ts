@@ -30,7 +30,7 @@ ${keyPoints}
   }
 
   private generateVideoLink(video: VideoInfo): string {
-    return `🎬 **[YouTube에서 보기](${video.url})**
+    return `**[YouTube에서 보기](${video.url})**
 
 - **채널**: ${video.channelTitle}
 - **길이**: ${this.formatDuration(video.durationSeconds)}`;

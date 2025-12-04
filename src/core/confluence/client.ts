@@ -160,7 +160,7 @@ export class ConfluenceClient {
         title: request.title,
         status: 'current',
         body: {
-          representation: 'storage',
+          representation: 'atlas_doc_format',
           value: request.body,
         },
       }),
@@ -195,7 +195,7 @@ export class ConfluenceClient {
         title,
         status: 'current',
         body: {
-          representation: 'storage',
+          representation: 'atlas_doc_format',
           value: body,
         },
         version: {
@@ -284,21 +284,47 @@ export class ConfluenceClient {
   }
 
   async getChildPages(pageId: string): Promise<ConfluencePage[]> {
-    const response = await this.request<{
-      results: Array<{
-        id: string;
-        title: string;
-        spaceId: string;
-        parentId: string;
-      }>;
-    }>(`/wiki/api/v2/pages/${pageId}/children`);
+    const allPages: ConfluencePage[] = [];
+    let cursor: string | null = null;
 
-    return response.results.map((page) => ({
-      id: page.id,
-      title: page.title,
-      spaceKey: page.spaceId,
-      parentId: page.parentId,
-    }));
+    // Paginate through all children
+    do {
+      const endpoint = cursor
+        ? `/wiki/api/v2/pages/${pageId}/children?cursor=${encodeURIComponent(cursor)}&limit=100`
+        : `/wiki/api/v2/pages/${pageId}/children?limit=100`;
+
+      const response = await this.request<{
+        results: Array<{
+          id: string;
+          title: string;
+          spaceId: string;
+          parentId: string;
+        }>;
+        _links?: {
+          next?: string;
+        };
+      }>(endpoint);
+
+      for (const page of response.results) {
+        allPages.push({
+          id: page.id,
+          title: page.title,
+          spaceKey: page.spaceId,
+          parentId: page.parentId,
+        });
+      }
+
+      // Extract cursor from next link if present
+      cursor = null;
+      if (response._links?.next) {
+        const cursorMatch = response._links.next.match(/cursor=([^&]+)/);
+        if (cursorMatch) {
+          cursor = decodeURIComponent(cursorMatch[1]);
+        }
+      }
+    } while (cursor);
+
+    return allPages;
   }
 
   async findChildPageByTitle(
@@ -311,6 +337,45 @@ export class ConfluenceClient {
     return children.find((page) =>
       page.title.replace(/\s+/g, ' ').trim() === normalizedTitle
     ) || null;
+  }
+
+  async findPageByTitleInSpace(
+    spaceId: string,
+    title: string
+  ): Promise<ConfluencePage | null> {
+    // Search for page by exact title in space
+    const normalizedTitle = title.replace(/\s+/g, ' ').trim();
+
+    try {
+      const response = await this.request<{
+        results: Array<{
+          id: string;
+          title: string;
+          spaceId: string;
+          parentId?: string;
+          version?: { number: number };
+        }>;
+      }>(`/wiki/api/v2/spaces/${spaceId}/pages?title=${encodeURIComponent(normalizedTitle)}&limit=10`);
+
+      // Find exact match (normalized)
+      const match = response.results.find((page) =>
+        page.title.replace(/\s+/g, ' ').trim() === normalizedTitle
+      );
+
+      if (match) {
+        return {
+          id: match.id,
+          title: match.title,
+          spaceKey: match.spaceId,
+          parentId: match.parentId,
+          version: match.version?.number,
+        };
+      }
+    } catch {
+      // Search failed, fall back to null
+    }
+
+    return null;
   }
 
   getPageUrl(pageId: string): string {

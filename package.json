@@ -44,6 +44,7 @@
     "commander": "^14.0.2",
     "dotenv": "^17.2.3",
     "googleapis": "^166.0.0",
-    "marked": "^17.0.1"
+    "marked": "^17.0.1",
+    "md-to-adf": "^0.6.4"
   }
 }

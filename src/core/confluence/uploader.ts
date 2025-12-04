@@ -1,7 +1,7 @@
 import { readFile, readdir, access } from 'fs/promises';
 import { join } from 'path';
 import { ConfluenceClient } from './client.js';
-import { MarkdownToConfluenceConverter } from './converter.js';
+import { MarkdownToADFConverter } from './adf-converter.js';
 import type { ConfluenceConfig, ConfluencePage } from '../../types/index.js';
 
 export interface UploadCallbacks {
@@ -28,7 +28,8 @@ export interface UploadResult {
 
 export class ConfluenceUploader {
   private client: ConfluenceClient;
-  private converter: MarkdownToConfluenceConverter;
+  private converter: MarkdownToADFConverter;
+  private baseUrl: string;
   private onRetry?: (attempt: number, maxRetries: number, error: string, context?: string) => void;
 
   constructor(
@@ -36,12 +37,13 @@ export class ConfluenceUploader {
     options: { onRetry?: (attempt: number, maxRetries: number, error: string, context?: string) => void } = {}
   ) {
     this.onRetry = options.onRetry;
+    this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.client = new ConfluenceClient(config, {
       maxRetries: 3,
       retryDelayMs: 5000,
       onRetry: this.onRetry,
     });
-    this.converter = new MarkdownToConfluenceConverter();
+    this.converter = new MarkdownToADFConverter();
   }
 
   async uploadPlaylist(
@@ -65,21 +67,29 @@ export class ConfluenceUploader {
     const spaceId = await this.client.getSpaceIdFromPage(parentPageId);
     onProgress?.(`Space ID: ${spaceId}`);
 
-    // Check if playlist index page already exists
-    let indexPage = await this.client.findChildPageByTitle(parentPageId, playlistTitle);
+    // Normalize playlist title
+    const normalizedPlaylistTitle = playlistTitle.replace(/\s+/g, ' ').trim();
+
+    // Check if playlist index page already exists - first under parent, then in whole space
+    let indexPage = await this.client.findChildPageByTitle(parentPageId, normalizedPlaylistTitle);
+
+    if (!indexPage) {
+      // Not under parent, check if exists anywhere in space
+      indexPage = await this.client.findPageByTitleInSpace(spaceId, normalizedPlaylistTitle);
+    }
 
     if (!indexPage) {
       // Create playlist index page (will update with links later)
-      onProgress?.(`인덱스 페이지 생성 중: ${playlistTitle}`);
+      onProgress?.(`인덱스 페이지 생성 중: ${normalizedPlaylistTitle}`);
       indexPage = await this.client.createPage({
         spaceId,
         parentId: parentPageId,
-        title: playlistTitle,
+        title: normalizedPlaylistTitle,
         body: `<p>영상 목록을 불러오는 중...</p>`,
       });
-      onPageCreated?.(playlistTitle, indexPage.id);
+      onPageCreated?.(normalizedPlaylistTitle, indexPage.id);
     } else {
-      onProgress?.(`기존 인덱스 페이지 사용: ${playlistTitle}`);
+      onProgress?.(`기존 인덱스 페이지 사용: ${normalizedPlaylistTitle}`);
     }
 
     // Upload each video
@@ -106,8 +116,8 @@ export class ConfluenceUploader {
 
     // Update index page with links to all video pages
     onProgress?.('인덱스 페이지 업데이트 중...');
-    const indexContent = this.converter.convertToIndexPage(
-      playlistTitle,
+    const indexAdf = this.converter.convertToIndexPage(
+      normalizedPlaylistTitle,
       videoPages.map((vp) => ({
         title: vp.title,
         pageId: vp.pageId,
@@ -116,11 +126,12 @@ export class ConfluenceUploader {
         summary: vp.summary,
       }))
     );
+    const indexContent = this.converter.toJsonString(indexAdf);
 
     const currentIndexPage = await this.client.getPage(indexPage.id);
     await this.client.updatePage(
       indexPage.id,
-      playlistTitle,
+      normalizedPlaylistTitle,
       indexContent,
       currentIndexPage.version || 1
     );
@@ -155,9 +166,10 @@ export class ConfluenceUploader {
       throw new Error(`요약 파일이 없습니다 (아직 처리되지 않음): ${markdownPath}`);
     }
 
-    // Read and convert markdown
+    // Read and convert markdown to ADF
     const markdown = await readFile(markdownPath, 'utf-8');
-    const confluenceContent = this.converter.convert(markdown);
+    const adfDocument = this.converter.convert(markdown);
+    const confluenceContent = this.converter.toJsonString(adfDocument);
 
     // Extract summary from markdown (text after ## 요약 until next heading)
     const summaryMatch = markdown.match(/## 요약\s*\n\n([^\n#]+)/);
@@ -166,8 +178,13 @@ export class ConfluenceUploader {
     // Normalize title: collapse multiple spaces, trim
     const normalizedTitle = video.title.replace(/\s+/g, ' ').trim();
 
-    // Check if page already exists
+    // Check if page already exists - first under parent, then in whole space
     let page = await this.client.findChildPageByTitle(parentPageId, normalizedTitle);
+
+    if (!page) {
+      // Not under parent, check if exists anywhere in space
+      page = await this.client.findPageByTitleInSpace(spaceId, normalizedTitle);
+    }
 
     if (!page) {
       // Create video page
@@ -180,6 +197,7 @@ export class ConfluenceUploader {
       callbacks.onPageCreated?.(normalizedTitle, page.id);
     } else {
       // Update existing page
+      callbacks.onProgress?.(`기존 페이지 업데이트: ${normalizedTitle}`);
       const currentPage = await this.client.getPage(page.id);
       await this.client.updatePage(
         page.id,
@@ -193,36 +211,36 @@ export class ConfluenceUploader {
     // Upload screenshots as attachments
     const attachments: string[] = [];
     try {
-      const screenshotFiles = await readdir(screenshotDir);
-      callbacks.onProgress?.(`스크린샷 ${screenshotFiles.length}개 발견: ${screenshotDir}`);
+        const screenshotFiles = await readdir(screenshotDir);
+        callbacks.onProgress?.(`스크린샷 ${screenshotFiles.length}개 발견: ${screenshotDir}`);
 
-      // Get existing attachments to avoid re-uploading
-      const existingAttachments = await this.client.getAttachments(page.id);
-      const existingFileNames = new Set(existingAttachments.map((att) => att.title));
+        // Get existing attachments to avoid re-uploading
+        const existingAttachments = await this.client.getAttachments(page.id);
+        const existingFileNames = new Set(existingAttachments.map((att) => att.title));
 
-      for (const fileName of screenshotFiles) {
-        if (!fileName.endsWith('.png') && !fileName.endsWith('.jpg')) {
-          continue;
-        }
+        for (const fileName of screenshotFiles) {
+          if (!fileName.endsWith('.png') && !fileName.endsWith('.jpg')) {
+            continue;
+          }
 
-        // Skip if already exists
-        if (existingFileNames.has(fileName)) {
-          callbacks.onProgress?.(`스크린샷 이미 존재 (건너뜀): ${fileName}`);
-          attachments.push(fileName);
-          continue;
-        }
-
-        const filePath = join(screenshotDir, fileName);
-        try {
-          await this.client.uploadAttachment(page.id, filePath, fileName);
-          attachments.push(fileName);
-          onAttachmentUploaded?.(fileName);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          // Attachment might already exist, continue
-          if (message.includes('already exists') || message.includes('Cannot add a new attachment with same file name')) {
-            callbacks.onProgress?.(`스크린샷 이미 존재: ${fileName}`);
+          // Skip if already exists
+          if (existingFileNames.has(fileName)) {
+            callbacks.onProgress?.(`스크린샷 이미 존재 (건너뜀): ${fileName}`);
             attachments.push(fileName);
+            continue;
+          }
+
+          const filePath = join(screenshotDir, fileName);
+          try {
+            await this.client.uploadAttachment(page.id, filePath, fileName);
+            attachments.push(fileName);
+            onAttachmentUploaded?.(fileName);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            // Attachment might already exist, continue
+            if (message.includes('already exists') || message.includes('Cannot add a new attachment with same file name')) {
+              callbacks.onProgress?.(`스크린샷 이미 존재: ${fileName}`);
+              attachments.push(fileName);
           } else {
             callbacks.onError?.(`스크린샷 업로드 실패 (${fileName}): ${message}`);
           }
@@ -237,14 +255,22 @@ export class ConfluenceUploader {
     }
 
     // Re-update page content after attachments are uploaded
-    // This ensures Confluence can properly resolve image references
+    // Regenerate ADF with proper image URLs now that we have pageId
     if (attachments.length > 0) {
       callbacks.onProgress?.(`페이지 내용 재업데이트 중 (첨부파일 참조 갱신)...`);
+
+      // Regenerate ADF with baseUrl and pageId for proper image references
+      const updatedAdfDocument = this.converter.convert(markdown, {
+        baseUrl: this.baseUrl,
+        pageId: page.id,
+      });
+      const updatedContent = this.converter.toJsonString(updatedAdfDocument);
+
       const currentPage = await this.client.getPage(page.id);
       await this.client.updatePage(
         page.id,
-        video.title,
-        confluenceContent,
+        normalizedTitle,
+        updatedContent,
         currentPage.version || 1
       );
     }
