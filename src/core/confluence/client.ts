@@ -306,10 +306,35 @@ export class ConfluenceClient {
     title: string
   ): Promise<ConfluencePage | null> {
     const children = await this.getChildPages(parentId);
-    return children.find((page) => page.title === title) || null;
+    // Normalize titles for comparison (collapse whitespace, trim)
+    const normalizedTitle = title.replace(/\s+/g, ' ').trim();
+    return children.find((page) =>
+      page.title.replace(/\s+/g, ' ').trim() === normalizedTitle
+    ) || null;
   }
 
   getPageUrl(pageId: string): string {
     return `${this.baseUrl}/wiki/pages/${pageId}`;
+  }
+
+  async getAttachments(pageId: string): Promise<ConfluenceAttachment[]> {
+    const response = await this.request<{
+      results: Array<{
+        id: string;
+        title: string;
+        mediaType: string;
+      }>;
+    }>(`/wiki/api/v2/pages/${pageId}/attachments`);
+
+    return response.results.map((att) => ({
+      id: att.id,
+      title: att.title,
+      mediaType: att.mediaType,
+    }));
+  }
+
+  async attachmentExists(pageId: string, fileName: string): Promise<boolean> {
+    const attachments = await this.getAttachments(pageId);
+    return attachments.some((att) => att.title === fileName);
   }
 }

@@ -196,8 +196,19 @@ export class ConfluenceUploader {
       const screenshotFiles = await readdir(screenshotDir);
       callbacks.onProgress?.(`스크린샷 ${screenshotFiles.length}개 발견: ${screenshotDir}`);
 
+      // Get existing attachments to avoid re-uploading
+      const existingAttachments = await this.client.getAttachments(page.id);
+      const existingFileNames = new Set(existingAttachments.map((att) => att.title));
+
       for (const fileName of screenshotFiles) {
         if (!fileName.endsWith('.png') && !fileName.endsWith('.jpg')) {
+          continue;
+        }
+
+        // Skip if already exists
+        if (existingFileNames.has(fileName)) {
+          callbacks.onProgress?.(`스크린샷 이미 존재 (건너뜀): ${fileName}`);
+          attachments.push(fileName);
           continue;
         }
 
