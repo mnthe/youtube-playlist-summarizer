@@ -22,17 +22,18 @@ export interface UploadResult {
     pageId: string;
     pageUrl: string;
     attachments: string[];
+    summary?: string;
   }>;
 }
 
 export class ConfluenceUploader {
   private client: ConfluenceClient;
   private converter: MarkdownToConfluenceConverter;
-  private onRetry?: (attempt: number, maxRetries: number, error: string) => void;
+  private onRetry?: (attempt: number, maxRetries: number, error: string, context?: string) => void;
 
   constructor(
     config: ConfluenceConfig,
-    options: { onRetry?: (attempt: number, maxRetries: number, error: string) => void } = {}
+    options: { onRetry?: (attempt: number, maxRetries: number, error: string, context?: string) => void } = {}
   ) {
     this.onRetry = options.onRetry;
     this.client = new ConfluenceClient(config, {
@@ -111,6 +112,8 @@ export class ConfluenceUploader {
         title: vp.title,
         pageId: vp.pageId,
         pageTitle: vp.title,
+        videoId: vp.videoId,
+        summary: vp.summary,
       }))
     );
 
@@ -156,28 +159,35 @@ export class ConfluenceUploader {
     const markdown = await readFile(markdownPath, 'utf-8');
     const confluenceContent = this.converter.convert(markdown);
 
+    // Extract summary from markdown (text after ## 요약 until next heading)
+    const summaryMatch = markdown.match(/## 요약\s*\n\n([^\n#]+)/);
+    const summary = summaryMatch ? summaryMatch[1].trim() : undefined;
+
+    // Normalize title: collapse multiple spaces, trim
+    const normalizedTitle = video.title.replace(/\s+/g, ' ').trim();
+
     // Check if page already exists
-    let page = await this.client.findChildPageByTitle(parentPageId, video.title);
+    let page = await this.client.findChildPageByTitle(parentPageId, normalizedTitle);
 
     if (!page) {
       // Create video page
       page = await this.client.createPage({
         spaceId,
         parentId: parentPageId,
-        title: video.title,
+        title: normalizedTitle,
         body: confluenceContent,
       });
-      callbacks.onPageCreated?.(video.title, page.id);
+      callbacks.onPageCreated?.(normalizedTitle, page.id);
     } else {
       // Update existing page
       const currentPage = await this.client.getPage(page.id);
       await this.client.updatePage(
         page.id,
-        video.title,
+        normalizedTitle,
         confluenceContent,
         currentPage.version || 1
       );
-      callbacks.onPageUpdated?.(video.title, page.id);
+      callbacks.onPageUpdated?.(normalizedTitle, page.id);
     }
 
     // Upload screenshots as attachments
@@ -230,10 +240,11 @@ export class ConfluenceUploader {
 
     return {
       videoId: video.id,
-      title: video.title,
+      title: normalizedTitle,
       pageId: page.id,
       pageUrl: this.client.getPageUrl(page.id),
       attachments,
+      summary,
     };
   }
 

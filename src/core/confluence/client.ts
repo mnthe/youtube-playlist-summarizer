@@ -9,7 +9,7 @@ import type {
 export interface ConfluenceClientOptions {
   maxRetries?: number;
   retryDelayMs?: number;
-  onRetry?: (attempt: number, maxRetries: number, error: string) => void;
+  onRetry?: (attempt: number, maxRetries: number, error: string, context?: string) => void;
 }
 
 export class ConfluenceClient {
@@ -17,7 +17,7 @@ export class ConfluenceClient {
   private authHeader: string;
   private maxRetries: number;
   private retryDelayMs: number;
-  private onRetry?: (attempt: number, maxRetries: number, error: string) => void;
+  private onRetry?: (attempt: number, maxRetries: number, error: string, context?: string) => void;
 
   constructor(config: ConfluenceConfig, options: ConfluenceClientOptions = {}) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -38,7 +38,8 @@ export class ConfluenceClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    context?: string
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     let lastError: Error | null = null;
@@ -61,7 +62,7 @@ export class ConfluenceClient {
 
           if (this.isRetryableStatus(response.status) && attempt < this.maxRetries) {
             const delayMs = this.retryDelayMs * Math.pow(2, attempt);
-            this.onRetry?.(attempt + 1, this.maxRetries + 1, error.message);
+            this.onRetry?.(attempt + 1, this.maxRetries + 1, error.message, context);
             await this.sleep(delayMs);
             lastError = error;
             continue;
@@ -78,7 +79,7 @@ export class ConfluenceClient {
         // Network errors - retry
         if (attempt < this.maxRetries && this.isNetworkError(lastError)) {
           const delayMs = this.retryDelayMs * Math.pow(2, attempt);
-          this.onRetry?.(attempt + 1, this.maxRetries + 1, lastError.message);
+          this.onRetry?.(attempt + 1, this.maxRetries + 1, lastError.message, context);
           await this.sleep(delayMs);
           continue;
         }
@@ -144,6 +145,7 @@ export class ConfluenceClient {
   }
 
   async createPage(request: ConfluenceCreatePageRequest): Promise<ConfluencePage> {
+    const context = `createPage: "${request.title}" (body: ${request.body.length} chars)`;
     const response = await this.request<{
       id: string;
       title: string;
@@ -162,7 +164,7 @@ export class ConfluenceClient {
           value: request.body,
         },
       }),
-    });
+    }, context);
 
     return {
       id: response.id,
@@ -179,6 +181,7 @@ export class ConfluenceClient {
     body: string,
     currentVersion: number
   ): Promise<ConfluencePage> {
+    const context = `updatePage: "${title}" (pageId: ${pageId}, body: ${body.length} chars, version: ${currentVersion} -> ${currentVersion + 1})`;
     const response = await this.request<{
       id: string;
       title: string;
@@ -199,7 +202,7 @@ export class ConfluenceClient {
           number: currentVersion + 1,
         },
       }),
-    });
+    }, context);
 
     return {
       id: response.id,
@@ -217,6 +220,7 @@ export class ConfluenceClient {
   ): Promise<ConfluenceAttachment> {
     const fileBuffer = await readFile(filePath);
     const url = `${this.baseUrl}/wiki/rest/api/content/${pageId}/child/attachment`;
+    const context = `uploadAttachment: "${fileName}" (pageId: ${pageId}, size: ${fileBuffer.length} bytes)`;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
@@ -240,7 +244,7 @@ export class ConfluenceClient {
 
           if (this.isRetryableStatus(response.status) && attempt < this.maxRetries) {
             const delayMs = this.retryDelayMs * Math.pow(2, attempt);
-            this.onRetry?.(attempt + 1, this.maxRetries + 1, error.message);
+            this.onRetry?.(attempt + 1, this.maxRetries + 1, error.message, context);
             await this.sleep(delayMs);
             lastError = error;
             continue;
@@ -267,7 +271,7 @@ export class ConfluenceClient {
 
         if (attempt < this.maxRetries && this.isNetworkError(lastError)) {
           const delayMs = this.retryDelayMs * Math.pow(2, attempt);
-          this.onRetry?.(attempt + 1, this.maxRetries + 1, lastError.message);
+          this.onRetry?.(attempt + 1, this.maxRetries + 1, lastError.message, context);
           await this.sleep(delayMs);
           continue;
         }

@@ -127,8 +127,9 @@ export function createSummarizeCommand(): Command {
           console.log('\n📤 Confluence 업로드 시작...');
 
           const uploader = new ConfluenceUploader(confluenceConfig, {
-            onRetry: (attempt, maxRetries, error) => {
+            onRetry: (attempt, maxRetries, error, context) => {
               console.warn(`⚠️ Confluence API 재시도 (${attempt}/${maxRetries}):`);
+              if (context) console.warn(`   📍 ${context}`);
               console.warn(`   ${error}`);
             },
           });
@@ -277,8 +278,9 @@ async function handleUploadOnly(options: {
     console.log('\n📤 Confluence 업로드 시작...');
 
     const uploader = new ConfluenceUploader(confluenceConfig, {
-      onRetry: (attempt, maxRetries, error) => {
+      onRetry: (attempt, maxRetries, error, context) => {
         console.warn(`⚠️ Confluence API 재시도 (${attempt}/${maxRetries}):`);
+        if (context) console.warn(`   📍 ${context}`);
         console.warn(`   ${error}`);
       },
     });

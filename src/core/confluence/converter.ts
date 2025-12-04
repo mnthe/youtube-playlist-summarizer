@@ -26,12 +26,6 @@ export class MarkdownToConfluenceConverter {
     // Clean up extra newlines
     html = html.replace(/\n{3,}/g, '\n\n');
 
-    // Replace YouTube embed placeholders
-    html = html.replace(
-      /___YOUTUBE_EMBED_([a-zA-Z0-9_-]{11})___/g,
-      '<ac:structured-macro ac:name="widget" ac:schema-version="1"><ac:parameter ac:name="url">https://www.youtube.com/watch?v=$1</ac:parameter><ac:parameter ac:name="width">560</ac:parameter><ac:parameter ac:name="height">315</ac:parameter></ac:structured-macro>'
-    );
-
     return html.trim();
   }
 
@@ -92,7 +86,8 @@ export class MarkdownToConfluenceConverter {
           if (textToken.tokens) {
             content += this.parseInlineTokens(textToken.tokens);
           } else {
-            content += textToken.text;
+            // Parse raw text that might still contain markdown
+            content += this.parseMarkdownText(textToken.text);
           }
         } else if (token.type === 'paragraph') {
           // Don't wrap in <p> for list items, but parse inline tokens
@@ -109,19 +104,15 @@ export class MarkdownToConfluenceConverter {
       return `<li>${content}</li>\n`;
     };
 
-    // Links - with YouTube embed support
+    // Links - YouTube links use Smart Link embed format
     renderer.link = ({ href, text }: Tokens.Link): string => {
-      // Check if this is a YouTube link that should be embedded
       const youtubeMatch = href.match(
         /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
       );
-
       if (youtubeMatch) {
-        const videoId = youtubeMatch[1];
-        // Return both embed and link
-        return `<ac:structured-macro ac:name="widget" ac:schema-version="1"><ac:parameter ac:name="url">https://www.youtube.com/watch?v=${videoId}</ac:parameter><ac:parameter ac:name="width">560</ac:parameter><ac:parameter ac:name="height">315</ac:parameter></ac:structured-macro><p><a href="${href}">${text}</a></p>`;
+        // Confluence Cloud Smart Link embed format
+        return `<a href="${href}" data-card-appearance="embed">${href}</a>`;
       }
-
       return `<a href="${href}">${text}</a>`;
     };
 
@@ -195,6 +186,19 @@ export class MarkdownToConfluenceConverter {
     return text.replace(/\]\]>/g, ']]]]><![CDATA[>');
   }
 
+  private parseMarkdownText(text: string): string {
+    // Parse remaining markdown syntax in raw text
+    // Bold: **text** or __text__
+    let result = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    result = result.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    // Italic: *text* or _text_
+    result = result.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    result = result.replace(/_([^_]+)_/g, '<em>$1</em>');
+    // Inline code: `text`
+    result = result.replace(/`([^`]+)`/g, '<code>$1</code>');
+    return result;
+  }
+
   private parseInlineTokens(tokens: Tokens.Generic[] | undefined): string {
     if (!tokens) return '';
 
@@ -202,7 +206,8 @@ export class MarkdownToConfluenceConverter {
     for (const token of tokens) {
       switch (token.type) {
         case 'text':
-          result += (token as Tokens.Text).text;
+          // Parse any remaining markdown syntax in text
+          result += this.parseMarkdownText((token as Tokens.Text).text);
           break;
         case 'strong':
           result += `<strong>${this.parseInlineTokens((token as Tokens.Strong).tokens)}</strong>`;
@@ -218,14 +223,12 @@ export class MarkdownToConfluenceConverter {
           const href = linkToken.href;
           const text = this.parseInlineTokens(linkToken.tokens);
 
-          // Check for YouTube embed
+          // YouTube links use Smart Link embed format
           const youtubeMatch = href.match(
             /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
           );
           if (youtubeMatch) {
-            const videoId = youtubeMatch[1];
-            // Use placeholder that will be replaced after paragraph processing
-            result += `___YOUTUBE_EMBED_${videoId}___ <a href="${href}">${text}</a>`;
+            result += `<a href="${href}" data-card-appearance="embed">${href}</a>`;
           } else {
             result += `<a href="${href}">${text}</a>`;
           }
@@ -251,9 +254,9 @@ export class MarkdownToConfluenceConverter {
           result += `<del>${this.parseInlineTokens((token as Tokens.Del).tokens)}</del>`;
           break;
         default:
-          // Fallback: try to get text property
+          // Fallback: try to get text property and parse markdown
           if ('text' in token) {
-            result += (token as unknown as { text: string }).text;
+            result += this.parseMarkdownText((token as unknown as { text: string }).text);
           }
       }
     }
@@ -266,19 +269,29 @@ export class MarkdownToConfluenceConverter {
       title: string;
       pageId: string;
       pageTitle: string;
-      description?: string;
+      videoId?: string;
+      summary?: string;
     }>
   ): string {
     let content = `<h1>${this.escapeHtml(playlistTitle)}</h1>\n\n`;
     content += `<p>총 ${videos.length}개 영상</p>\n\n`;
 
     content += '<table>\n';
-    content += '<thead><tr><th>영상</th><th>하위 페이지</th></tr></thead>\n';
+    content += '<thead><tr><th>영상</th><th>요약</th><th>하위 페이지</th></tr></thead>\n';
     content += '<tbody>\n';
 
     for (const video of videos) {
       content += '<tr>';
-      content += `<td>${this.escapeHtml(video.title)}</td>`;
+      // YouTube embed using Smart Link format
+      if (video.videoId) {
+        const youtubeUrl = `https://www.youtube.com/watch?v=${video.videoId}`;
+        content += `<td><a href="${youtubeUrl}" data-card-appearance="embed">${youtubeUrl}</a></td>`;
+      } else {
+        content += `<td>${this.escapeHtml(video.title)}</td>`;
+      }
+      // Summary column
+      content += `<td>${video.summary ? this.escapeHtml(video.summary) : ''}</td>`;
+      // Page link column
       content += `<td><ac:link><ri:page ri:content-id="${video.pageId}" ri:content-title="${this.escapeHtml(video.pageTitle)}"/><ac:plain-text-link-body><![CDATA[${this.escapeHtml(video.pageTitle)}]]></ac:plain-text-link-body></ac:link></td>`;
       content += '</tr>\n';
     }
