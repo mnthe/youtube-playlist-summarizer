@@ -22,6 +22,7 @@ export function createSummarizeCommand(): Command {
     .option('--verbose', '상세 로그 출력')
     .option('--upload <wikiUrl>', 'Confluence 위키 페이지 URL (하위 페이지로 업로드)')
     .option('--upload-only', '요약 없이 기존 출력물만 Confluence에 업로드')
+    .option('--max-images <number>', 'Confluence 페이지당 최대 이미지 수 (기본값: 무제한)')
     .option('--test', '테스트 모드: 마지막 영상 1개만 처리')
     .action(async (options) => {
       // Upload-only 모드
@@ -132,6 +133,7 @@ export function createSummarizeCommand(): Command {
               if (context) console.warn(`   📍 ${context}`);
               console.warn(`   ${error}`);
             },
+            maxImages: options.maxImages ? parseInt(options.maxImages, 10) : undefined,
           });
           const uploadCallbacks = {
             onProgress: (message: string) => console.log(`ℹ️  ${message}`),
@@ -194,6 +196,7 @@ async function handleUploadOnly(options: {
   output: string;
   playlist?: string;
   verbose?: boolean;
+  maxImages?: string;
 }): Promise<void> {
   if (!options.upload) {
     console.error('❌ --upload-only는 --upload 옵션과 함께 사용해야 합니다.');
@@ -283,6 +286,7 @@ async function handleUploadOnly(options: {
         if (context) console.warn(`   📍 ${context}`);
         console.warn(`   ${error}`);
       },
+      maxImages: options.maxImages ? parseInt(options.maxImages, 10) : undefined,
     });
 
     const uploadCallbacks = {

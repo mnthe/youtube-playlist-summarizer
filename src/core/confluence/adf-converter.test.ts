@@ -218,6 +218,7 @@ Hello World`;
         {
           title: 'Video 1',
           pageId: '123',
+          pageUrl: 'https://test.atlassian.net/wiki/pages/123',
           pageTitle: 'Video 1',
           videoId: 'abc123def45',
           summary: 'Summary 1',
@@ -225,6 +226,7 @@ Hello World`;
         {
           title: 'Video 2',
           pageId: '456',
+          pageUrl: 'https://test.atlassian.net/wiki/pages/456',
           pageTitle: 'Video 2',
           summary: 'Summary 2',
         },
@@ -250,6 +252,7 @@ Hello World`;
         {
           title: 'Video',
           pageId: '123',
+          pageUrl: 'https://test.atlassian.net/wiki/pages/123',
           pageTitle: 'Video',
           videoId: 'abc123def45',
         },

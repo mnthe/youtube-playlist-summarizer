@@ -23,13 +23,16 @@ export interface ADFDocument {
 export interface ConvertOptions {
   baseUrl?: string;
   pageId?: string;
+  maxImages?: number; // Limit number of images to prevent Confluence API timeout
 }
 
 export class MarkdownToADFConverter {
   private options: ConvertOptions = {};
+  private imageCount: number = 0;
 
   convert(markdown: string, options?: ConvertOptions): ADFDocument {
     this.options = options || {};
+    this.imageCount = 0; // Reset image counter for each conversion
     // Normalize line endings
     let content = markdown.replace(/\\n/g, '\n');
 
@@ -97,10 +100,12 @@ export class MarkdownToADFConverter {
     };
   }
 
-  private convertParagraph(token: Tokens.Paragraph): ADFNode | ADFNode[] {
+  private convertParagraph(token: Tokens.Paragraph): ADFNode | ADFNode[] | null {
     // Check if paragraph contains only an image
     if (token.tokens.length === 1 && token.tokens[0].type === 'image') {
-      return this.convertImage(token.tokens[0] as Tokens.Image);
+      const imageNode = this.convertImage(token.tokens[0] as Tokens.Image);
+      if (!imageNode) return null; // Image was skipped due to limit
+      return imageNode;
     }
 
     // Check if paragraph contains a YouTube link that should be embedded
@@ -138,7 +143,13 @@ export class MarkdownToADFConverter {
     return null;
   }
 
-  private convertImage(token: Tokens.Image): ADFNode {
+  private convertImage(token: Tokens.Image): ADFNode | null {
+    // Check image limit
+    if (this.options.maxImages && this.imageCount >= this.options.maxImages) {
+      return null; // Skip images beyond limit
+    }
+    this.imageCount++;
+
     const href = token.href;
 
     // Local screenshot - use download URL if baseUrl and pageId are provided
@@ -408,6 +419,7 @@ export class MarkdownToADFConverter {
     videos: Array<{
       title: string;
       pageId: string;
+      pageUrl: string;
       pageTitle: string;
       videoId?: string;
       summary?: string;
@@ -489,7 +501,7 @@ export class MarkdownToADFConverter {
               {
                 type: 'inlineCard',
                 attrs: {
-                  url: `confluence://page/${video.pageId}`,
+                  url: video.pageUrl,
                 },
               },
             ],

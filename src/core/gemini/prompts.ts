@@ -42,7 +42,7 @@ export function createSystemPrompt(): string {
 
 ### Coverage
 - Capture FULL content, not just highlights.
-- Aim for 5-15 sections depending on video length.
+- Aim for 5-30 sections depending on video length.
 - Each section should convey the same information as watching that part.
 
 ## Example Output
