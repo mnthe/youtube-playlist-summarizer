@@ -130,11 +130,15 @@ export class MarkdownToADFConverter {
         );
         if (youtubeMatch) {
           // Return embedCard for YouTube videos (shows actual video player)
+          // YouTube 16:9 aspect ratio dimensions are required for proper rendering
           return {
             type: 'embedCard',
             attrs: {
               url: linkToken.href,
               layout: 'wide',
+              width: 100,
+              originalWidth: 853.34,
+              originalHeight: 480,
             },
           };
         }
@@ -389,11 +393,15 @@ export class MarkdownToADFConverter {
       /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
     );
     if (youtubeMatch) {
+      // YouTube 16:9 aspect ratio dimensions are required for proper rendering
       return {
         type: 'embedCard',
         attrs: {
           url: href,
           layout: 'wide',
+          width: 100,
+          originalWidth: 853.34,
+          originalHeight: 480,
         },
       };
     }
@@ -475,9 +483,14 @@ export class MarkdownToADFConverter {
             type: 'tableCell',
             content: [
               {
-                type: 'blockCard',
+                // YouTube 16:9 aspect ratio dimensions are required for proper rendering
+                type: 'embedCard',
                 attrs: {
                   url: `https://www.youtube.com/watch?v=${video.videoId}`,
+                  layout: 'wide',
+                  width: 100,
+                  originalWidth: 853.34,
+                  originalHeight: 480,
                 },
               },
             ],

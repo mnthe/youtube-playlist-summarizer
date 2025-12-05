@@ -111,7 +111,7 @@ export class MarkdownToConfluenceConverter {
       );
       if (youtubeMatch) {
         // Confluence Cloud Smart Link embed format
-        return `<a href="${href}" data-card-appearance="embed">${href}</a>`;
+        return `<a href="${href}" data-card-appearance="block">${href}</a>`;
       }
       return `<a href="${href}">${text}</a>`;
     };
@@ -228,7 +228,7 @@ export class MarkdownToConfluenceConverter {
             /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
           );
           if (youtubeMatch) {
-            result += `<a href="${href}" data-card-appearance="embed">${href}</a>`;
+            result += `<a href="${href}" data-card-appearance="block">${href}</a>`;
           } else {
             result += `<a href="${href}">${text}</a>`;
           }
@@ -285,7 +285,7 @@ export class MarkdownToConfluenceConverter {
       // YouTube embed using Smart Link format
       if (video.videoId) {
         const youtubeUrl = `https://www.youtube.com/watch?v=${video.videoId}`;
-        content += `<td><a href="${youtubeUrl}" data-card-appearance="embed">${youtubeUrl}</a></td>`;
+        content += `<td><a href="${youtubeUrl}" data-card-appearance="block">${youtubeUrl}</a></td>`;
       } else {
         content += `<td>${this.escapeHtml(video.title)}</td>`;
       }

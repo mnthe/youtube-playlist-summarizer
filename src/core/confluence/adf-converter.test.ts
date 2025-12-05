@@ -162,6 +162,10 @@ Hello World`;
       expect(embedCard).toBeDefined();
       expect(embedCard?.attrs?.url).toBe('https://www.youtube.com/watch?v=abc123def45');
       expect(embedCard?.attrs?.layout).toBe('wide');
+      // YouTube 16:9 dimensions are required for proper rendering
+      expect(embedCard?.attrs?.width).toBe(100);
+      expect(embedCard?.attrs?.originalWidth).toBe(853.34);
+      expect(embedCard?.attrs?.originalHeight).toBe(480);
     });
 
     it('converts youtu.be short links to embedCard when standalone', () => {
@@ -173,6 +177,10 @@ Hello World`;
       expect(embedCard).toBeDefined();
       expect(embedCard?.attrs?.url).toBe('https://youtu.be/abc123def45');
       expect(embedCard?.attrs?.layout).toBe('wide');
+      // YouTube 16:9 dimensions are required for proper rendering
+      expect(embedCard?.attrs?.width).toBe(100);
+      expect(embedCard?.attrs?.originalWidth).toBe(853.34);
+      expect(embedCard?.attrs?.originalHeight).toBe(480);
     });
   });
 
@@ -247,7 +255,7 @@ Hello World`;
       expect(table?.content).toHaveLength(3);
     });
 
-    it('uses blockCard for YouTube videos in index page', () => {
+    it('uses embedCard for YouTube videos in index page', () => {
       const result = converter.convertToIndexPage('Playlist', [
         {
           title: 'Video',
@@ -259,7 +267,8 @@ Hello World`;
       ]);
 
       const json = converter.toJsonString(result);
-      expect(json).toContain('blockCard');
+      expect(json).toContain('embedCard');
+      expect(json).toContain('"layout":"wide"');
       expect(json).toContain('https://www.youtube.com/watch?v=abc123def45');
     });
   });

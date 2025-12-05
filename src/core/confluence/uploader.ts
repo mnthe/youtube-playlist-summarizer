@@ -27,8 +27,8 @@ export interface UploadResult {
 }
 
 // Upload attachments in batches to prevent API timeout
-const ATTACHMENT_BATCH_SIZE = 5;
-const ATTACHMENT_BATCH_DELAY_MS = 1000;
+const ATTACHMENT_BATCH_SIZE = 10;
+const ATTACHMENT_BATCH_DELAY_MS = 500;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -82,8 +82,8 @@ export class ConfluenceUploader {
     const { onProgress, onPageCreated, onPageUpdated, onError } = callbacks;
 
     // Parse parent page URL
-    const { baseUrl, pageId: parentPageId } = this.client.parsePageUrl(parentPageUrl);
-    onProgress?.(`부모 페이지 ID: ${parentPageId}`);
+    const { baseUrl, spaceKey, pageId: parentPageId } = this.client.parsePageUrl(parentPageUrl);
+    onProgress?.(`부모 페이지 ID: ${parentPageId}, Space: ${spaceKey}`);
 
     // Get space ID from parent page
     const spaceId = await this.client.getSpaceIdFromPage(parentPageId);
@@ -124,6 +124,7 @@ export class ConfluenceUploader {
       try {
         const videoPageResult = await this.uploadVideoPage(
           spaceId,
+          spaceKey,
           indexPage.id,
           playlistDir,
           video,
@@ -164,13 +165,14 @@ export class ConfluenceUploader {
 
     return {
       indexPageId: indexPage.id,
-      indexPageUrl: this.client.getPageUrl(indexPage.id),
+      indexPageUrl: this.client.getPageUrl(indexPage.id, spaceKey),
       videoPages,
     };
   }
 
   private async uploadVideoPage(
     spaceId: string,
+    spaceKey: string,
     parentPageId: string,
     playlistDir: string,
     video: { id: string; title: string; outputDir: string },
@@ -241,16 +243,22 @@ export class ConfluenceUploader {
       if (needsDeferredUpdate) {
         callbacks.onProgress?.(`[Step 1/4] 기존 페이지 확인됨 (첨부파일 업로드 후 업데이트 예정): ${normalizedTitle}`);
       } else {
-        callbacks.onProgress?.(`[Step 1/4] 기존 페이지 업데이트: ${normalizedTitle} (body: ${confluenceContent.length} chars)`);
-        const currentPage = await this.client.getPage(page.id);
-        callbacks.onProgress?.(`[Step 1/4] 페이지 버전 확인 완료: v${currentPage.version}`);
-        await this.client.updatePage(
-          page.id,
-          normalizedTitle,
-          confluenceContent,
-          currentPage.version || 1
-        );
-        callbacks.onPageUpdated?.(normalizedTitle, page.id);
+        callbacks.onProgress?.(`[Step 1/4] 기존 페이지 업데이트 확인 중: ${normalizedTitle}`);
+        const currentPage = await this.client.getPageWithAdfBody(page.id);
+
+        // Skip update if content is the same
+        if (currentPage.body === confluenceContent) {
+          callbacks.onProgress?.(`[Step 1/4] 콘텐츠 동일 - 업데이트 건너뜀 (v${currentPage.version})`);
+        } else {
+          callbacks.onProgress?.(`[Step 1/4] 업데이트 필요 (body: ${confluenceContent.length} chars, v${currentPage.version})`);
+          await this.client.updatePage(
+            page.id,
+            normalizedTitle,
+            confluenceContent,
+            currentPage.version || 1
+          );
+          callbacks.onPageUpdated?.(normalizedTitle, page.id);
+        }
       }
     }
 
@@ -342,22 +350,28 @@ export class ConfluenceUploader {
       callbacks.onProgress?.(`[Step 3/4] ADF 재생성 완료 (body: ${updatedContent.length} chars)`);
 
       callbacks.onProgress?.(`[Step 4/4] 페이지 최종 업데이트 시작...`);
-      const currentPage = await this.client.getPage(page.id);
-      callbacks.onProgress?.(`[Step 4/4] 현재 버전: v${currentPage.version}, 업데이트 요청 중...`);
-      await this.client.updatePage(
-        page.id,
-        normalizedTitle,
-        updatedContent,
-        currentPage.version || 1
-      );
-      callbacks.onProgress?.(`[Step 4/4] 페이지 업데이트 완료`);
+      const currentPage = await this.client.getPageWithAdfBody(page.id);
+
+      // Skip update if content is the same
+      if (currentPage.body === updatedContent) {
+        callbacks.onProgress?.(`[Step 4/4] 콘텐츠 동일 - 업데이트 건너뜀 (v${currentPage.version})`);
+      } else {
+        callbacks.onProgress?.(`[Step 4/4] 현재 버전: v${currentPage.version}, 업데이트 요청 중...`);
+        await this.client.updatePage(
+          page.id,
+          normalizedTitle,
+          updatedContent,
+          currentPage.version || 1
+        );
+        callbacks.onProgress?.(`[Step 4/4] 페이지 업데이트 완료`);
+      }
     }
 
     return {
       videoId: video.id,
       title: normalizedTitle,
       pageId: page.id,
-      pageUrl: this.client.getPageUrl(page.id),
+      pageUrl: this.client.getPageUrl(page.id, spaceKey),
       attachments,
       summary,
     };
@@ -371,13 +385,14 @@ export class ConfluenceUploader {
   ): Promise<{ pageId: string; pageUrl: string; attachments: string[] }> {
     const { onProgress, onPageCreated, onAttachmentUploaded } = callbacks;
 
-    const { pageId: parentPageId } = this.client.parsePageUrl(parentPageUrl);
+    const { spaceKey, pageId: parentPageId } = this.client.parsePageUrl(parentPageUrl);
     const spaceId = await this.client.getSpaceIdFromPage(parentPageId);
 
     onProgress?.(`영상 페이지 업로드 중: ${videoTitle}`);
 
     const result = await this.uploadVideoPage(
       spaceId,
+      spaceKey,
       parentPageId,
       '', // No playlist dir
       { id: '', title: videoTitle, outputDir: videoDir },

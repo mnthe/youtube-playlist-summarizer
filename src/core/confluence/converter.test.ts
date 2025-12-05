@@ -96,18 +96,18 @@ describe('MarkdownToConfluenceConverter', () => {
       expect(result).toContain('<a href="https://example.com">Example</a>');
     });
 
-    it('converts YouTube links to Smart Link embed', () => {
+    it('converts YouTube links to Smart Link block', () => {
       const md = '[Watch Video](https://www.youtube.com/watch?v=abc123def45)';
       const result = converter.convert(md);
-      expect(result).toContain('data-card-appearance="embed"');
+      expect(result).toContain('data-card-appearance="block"');
       expect(result).toContain('https://www.youtube.com/watch?v=abc123def45');
-      expect(result).toContain('<a href="https://www.youtube.com/watch?v=abc123def45" data-card-appearance="embed">');
+      expect(result).toContain('<a href="https://www.youtube.com/watch?v=abc123def45" data-card-appearance="block">');
     });
 
-    it('converts youtu.be short links to Smart Link embed', () => {
+    it('converts youtu.be short links to Smart Link block', () => {
       const md = '[Video](https://youtu.be/abc123def45)';
       const result = converter.convert(md);
-      expect(result).toContain('data-card-appearance="embed"');
+      expect(result).toContain('data-card-appearance="block"');
       expect(result).toContain('abc123def45');
     });
   });
@@ -318,8 +318,8 @@ AgentCore Memory의 내부 아키텍처:
       expect(result).not.toContain('title: "AWS re:Invent');
       expect(result).not.toContain('---\ntitle');
 
-      // YouTube Smart Link embed should be present
-      expect(result).toContain('data-card-appearance="embed"');
+      // YouTube Smart Link block should be present
+      expect(result).toContain('data-card-appearance="block"');
       expect(result).toContain('Sh0Ro00_rpA');
 
       // Headers
@@ -425,8 +425,8 @@ Regular link: [Documentation](https://docs.example.com)`;
 
       const result = converter.convert(md);
 
-      // Should have 2 YouTube Smart Link embeds
-      const embedCount = (result.match(/data-card-appearance="embed"/g) || []).length;
+      // Should have 2 YouTube Smart Link blocks
+      const embedCount = (result.match(/data-card-appearance="block"/g) || []).length;
       expect(embedCount).toBe(2);
 
       expect(result).toContain('video1abcdef');

@@ -103,17 +103,18 @@ export class ConfluenceClient {
     );
   }
 
-  parsePageUrl(url: string): { baseUrl: string; pageId: string } {
+  parsePageUrl(url: string): { baseUrl: string; spaceKey: string; pageId: string } {
     // Confluence Cloud URL formats:
     // https://xxx.atlassian.net/wiki/spaces/SPACE/pages/123456/Page+Title
     // https://xxx.atlassian.net/wiki/spaces/SPACE/pages/123456
-    const match = url.match(/^(https:\/\/[^/]+)\/wiki\/spaces\/[^/]+\/pages\/(\d+)/);
+    const match = url.match(/^(https:\/\/[^/]+)\/wiki\/spaces\/([^/]+)\/pages\/(\d+)/);
     if (!match) {
       throw new Error(`Invalid Confluence page URL: ${url}`);
     }
     return {
       baseUrl: match[1],
-      pageId: match[2],
+      spaceKey: match[2],
+      pageId: match[3],
     };
   }
 
@@ -133,6 +134,26 @@ export class ConfluenceClient {
       spaceKey: response.spaceId,
       parentId: response.parentId,
       body: response.body?.storage?.value,
+      version: response.version?.number,
+    };
+  }
+
+  async getPageWithAdfBody(pageId: string): Promise<ConfluencePage> {
+    const response = await this.request<{
+      id: string;
+      title: string;
+      spaceId: string;
+      parentId?: string;
+      version: { number: number };
+      body?: { atlas_doc_format: { value: string } };
+    }>(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`);
+
+    return {
+      id: response.id,
+      title: response.title,
+      spaceKey: response.spaceId,
+      parentId: response.parentId,
+      body: response.body?.atlas_doc_format?.value,
       version: response.version?.number,
     };
   }
@@ -378,8 +399,8 @@ export class ConfluenceClient {
     return null;
   }
 
-  getPageUrl(pageId: string): string {
-    return `${this.baseUrl}/wiki/pages/${pageId}`;
+  getPageUrl(pageId: string, spaceKey: string): string {
+    return `${this.baseUrl}/wiki/spaces/${spaceKey}/pages/${pageId}`;
   }
 
   async getAttachments(pageId: string): Promise<ConfluenceAttachment[]> {
