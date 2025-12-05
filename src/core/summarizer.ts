@@ -188,29 +188,45 @@ export class Summarizer {
           onProgress?.(`요약 이미 완료됨: ${video.title}`);
         }
 
-        // Step 2: Capture screenshots (if enabled and not done)
+        // Step 2: Capture screenshots (if enabled and not all done)
+        // Filter out already successful timestamps for retry
+        const existingFiles = videoState.screenshots.files || [];
+        const existingTimestamps = new Set(
+          existingFiles.map((f) => f.replace('.png', '').replace(/-/g, ':'))
+        );
+        const pendingTimestamps = screenshotTimestamps.filter(
+          (ts) => !existingTimestamps.has(ts)
+        );
+
         if (
           config.withScreenshots &&
-          videoState.screenshots.status !== 'completed' &&
-          screenshotTimestamps.length > 0
+          pendingTimestamps.length > 0
         ) {
           onProgress?.(
-            `[${index + 1}/${videos.length}] 스크린샷 캡처 중: ${screenshotTimestamps.length}개`
+            `[${index + 1}/${videos.length}] 스크린샷 캡처 중: ${pendingTimestamps.length}개 (기존 ${existingFiles.length}개)`
           );
 
-          await stateManager.updateScreenshotStatus(video.id, 'in_progress', 0, []);
+          await stateManager.updateScreenshotStatus(
+            video.id,
+            'in_progress',
+            existingFiles.length,
+            existingFiles
+          );
 
           const screenshotDir = join(outputDir, 'screenshots');
           const screenshotCapturer = this.createScreenshotCapturer(callbacks);
           const results = await screenshotCapturer.captureMultiple(
             video.url,
-            screenshotTimestamps,
+            pendingTimestamps,
             screenshotDir
           );
 
-          const successfulFiles = results
+          const newSuccessfulFiles = results
             .filter((r) => r.success)
             .map((r) => r.filePath.split('/').pop()!);
+
+          // Merge existing files with newly successful files
+          const allSuccessfulFiles = [...existingFiles, ...newSuccessfulFiles];
 
           const failedResults = results.filter((r) => !r.success);
 
@@ -224,22 +240,22 @@ export class Summarizer {
 
             await stateManager.updateScreenshotStatus(
               video.id,
-              failedResults.length === results.length ? 'failed' : 'completed',
-              successfulFiles.length,
-              successfulFiles,
+              'failed',  // Keep as failed so retry will pick up remaining
+              allSuccessfulFiles.length,
+              allSuccessfulFiles,
               errors
             );
           } else {
             await stateManager.updateScreenshotStatus(
               video.id,
               'completed',
-              successfulFiles.length,
-              successfulFiles
+              allSuccessfulFiles.length,
+              allSuccessfulFiles
             );
           }
 
           onProgress?.(
-            `스크린샷 완료: ${successfulFiles.length}/${timestamps.length}`
+            `스크린샷 완료: ${allSuccessfulFiles.length}/${screenshotTimestamps.length}`
           );
         }
 
