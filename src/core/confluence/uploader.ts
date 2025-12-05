@@ -34,6 +34,83 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Fields that Confluence adds/modifies/strips when storing ADF - should be ignored in comparison
+const CONFLUENCE_INTERNAL_FIELDS = new Set([
+  '__fileMimeType',
+  '__fileSize',
+  '__contextId',
+  '__mediaTraceId',
+  'width',        // Confluence may modify image dimensions
+  'height',
+  'alt',          // Confluence strips alt from media nodes
+]);
+
+// Deep sort object keys and strip Confluence internal fields for consistent comparison
+function normalizeForComparison(obj: unknown): unknown {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(normalizeForComparison);
+  }
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(obj).sort()) {
+    // Skip Confluence internal fields
+    if (CONFLUENCE_INTERNAL_FIELDS.has(key)) {
+      continue;
+    }
+    sorted[key] = normalizeForComparison((obj as Record<string, unknown>)[key]);
+  }
+  return sorted;
+}
+
+// Compare ADF content semantically (JSON deep equal) instead of string comparison
+// Confluence may reorder keys or normalize the ADF when storing
+function isAdfContentEqual(
+  a: string | undefined,
+  b: string | undefined,
+  debugCallback?: (message: string) => void
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+
+  try {
+    const objA = normalizeForComparison(JSON.parse(a));
+    const objB = normalizeForComparison(JSON.parse(b));
+    const strA = JSON.stringify(objA);
+    const strB = JSON.stringify(objB);
+
+    if (strA === strB) return true;
+
+    // Debug: find the first difference
+    if (debugCallback) {
+      const minLen = Math.min(strA.length, strB.length);
+      let diffPos = -1;
+      for (let i = 0; i < minLen; i++) {
+        if (strA[i] !== strB[i]) {
+          diffPos = i;
+          break;
+        }
+      }
+      if (diffPos === -1 && strA.length !== strB.length) {
+        diffPos = minLen;
+      }
+      if (diffPos >= 0) {
+        const start = Math.max(0, diffPos - 50);
+        const end = Math.min(strA.length, diffPos + 50);
+        debugCallback(`차이 발견 위치: ${diffPos}, 길이 차이: ${strA.length} vs ${strB.length}`);
+        debugCallback(`서버: ...${strA.substring(start, end)}...`);
+        debugCallback(`로컬: ...${strB.substring(start, end)}...`);
+      }
+    }
+
+    return false;
+  } catch {
+    // If parsing fails, fall back to string comparison
+    return a === b;
+  }
+}
+
 export class ConfluenceUploader {
   private client: ConfluenceClient;
   private converter: MarkdownToADFConverter;
@@ -213,10 +290,10 @@ export class ConfluenceUploader {
       page = await this.client.findPageByTitleInSpace(spaceId, normalizedTitle);
     }
 
-    // For large content with many images, we'll update with full content after attachments are uploaded
-    // Here we just create/check the page exists with placeholder content
+    // For pages with screenshots, defer update to Step 4 after attachments are uploaded
+    // This avoids comparison issues with Confluence's UNKNOWN_MEDIA_ID placeholder
     const hasScreenshots = await this.hasScreenshotDir(screenshotDir);
-    const needsDeferredUpdate = hasScreenshots && confluenceContent.length > 30000;
+    const needsDeferredUpdate = hasScreenshots;
 
     if (!page) {
       // Create video page
@@ -246,8 +323,8 @@ export class ConfluenceUploader {
         callbacks.onProgress?.(`[Step 1/4] 기존 페이지 업데이트 확인 중: ${normalizedTitle}`);
         const currentPage = await this.client.getPageWithAdfBody(page.id);
 
-        // Skip update if content is the same
-        if (currentPage.body === confluenceContent) {
+        // Skip update if content is the same (semantic JSON comparison)
+        if (isAdfContentEqual(currentPage.body, confluenceContent, callbacks.onProgress)) {
           callbacks.onProgress?.(`[Step 1/4] 콘텐츠 동일 - 업데이트 건너뜀 (v${currentPage.version})`);
         } else {
           callbacks.onProgress?.(`[Step 1/4] 업데이트 필요 (body: ${confluenceContent.length} chars, v${currentPage.version})`);
@@ -352,8 +429,8 @@ export class ConfluenceUploader {
       callbacks.onProgress?.(`[Step 4/4] 페이지 최종 업데이트 시작...`);
       const currentPage = await this.client.getPageWithAdfBody(page.id);
 
-      // Skip update if content is the same
-      if (currentPage.body === updatedContent) {
+      // Skip update if content is the same (semantic JSON comparison)
+      if (isAdfContentEqual(currentPage.body, updatedContent, callbacks.onProgress)) {
         callbacks.onProgress?.(`[Step 4/4] 콘텐츠 동일 - 업데이트 건너뜀 (v${currentPage.version})`);
       } else {
         callbacks.onProgress?.(`[Step 4/4] 현재 버전: v${currentPage.version}, 업데이트 요청 중...`);
