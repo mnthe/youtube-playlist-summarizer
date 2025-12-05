@@ -270,6 +270,10 @@ Hello World`;
       expect(json).toContain('embedCard');
       expect(json).toContain('"layout":"wide"');
       expect(json).toContain('https://www.youtube.com/watch?v=abc123def45');
+      // YouTube 16:9 dimensions are required for proper rendering
+      expect(json).toContain('"width":100');
+      expect(json).toContain('"originalWidth":853.34');
+      expect(json).toContain('"originalHeight":480');
     });
   });
 
