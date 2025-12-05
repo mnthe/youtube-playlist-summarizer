@@ -30,7 +30,9 @@ ${keyPoints}
   }
 
   private generateVideoLink(video: VideoInfo): string {
-    return `**[YouTube에서 보기](${video.url})**
+    // YouTube link must be on its own line (standalone paragraph)
+    // for Confluence ADF embedCard to work properly at document root level
+    return `[YouTube에서 보기](${video.url})
 
 - **채널**: ${video.channelTitle}
 - **길이**: ${this.formatDuration(video.durationSeconds)}`;

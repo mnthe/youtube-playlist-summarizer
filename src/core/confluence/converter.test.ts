@@ -214,7 +214,7 @@ summarized_at: "2025-12-03T10:00:00.000Z"
 locale: "ko"
 ---
 
-🎬 **[YouTube에서 보기](https://www.youtube.com/watch?v=Sh0Ro00_rpA)**
+[YouTube에서 보기](https://www.youtube.com/watch?v=Sh0Ro00_rpA)
 
 - **채널**: AWS Events
 - **길이**: 45:30
