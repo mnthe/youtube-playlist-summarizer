@@ -166,7 +166,18 @@ export class Summarizer {
 
           await stateManager.updateSummaryStatus(video.id, 'in_progress');
 
-          const summary = await this.gemini.summarizeVideo(video.url, config.locale);
+          // Fetch manual captions if available
+          const captionResult = await this.youtube.getCaptions(video.id, [config.locale, 'en']);
+          let captionText: string | null = null;
+
+          if (captionResult.isManual && captionResult.text) {
+            onProgress?.(`  📝 수동 자막 발견 (${captionResult.caption?.language})`);
+            captionText = captionResult.text;
+          } else if (captionResult.available) {
+            onProgress?.(`  ⚠️ 자동 생성 자막만 있음 (Gemini 내부 ASR 사용)`);
+          }
+
+          const summary = await this.gemini.summarizeVideo(video.url, config.locale, captionText);
           timestamps = summary.sections.map((s) => s.timestamp);
           screenshotTimestamps = summary.sections.map((s) => s.screenshotTimestamp);
 
@@ -338,9 +349,20 @@ export class Summarizer {
     const video = await this.youtube.getVideo(videoId);
     onProgress?.(`영상: ${video.title}`);
 
+    // Fetch manual captions if available
+    const captionResult = await this.youtube.getCaptions(videoId, [config.locale, 'en']);
+    let captionText: string | null = null;
+
+    if (captionResult.isManual && captionResult.text) {
+      onProgress?.(`📝 수동 자막 발견 (${captionResult.caption?.language})`);
+      captionText = captionResult.text;
+    } else if (captionResult.available) {
+      onProgress?.(`⚠️ 자동 생성 자막만 있음 (Gemini 내부 ASR 사용)`);
+    }
+
     // Summarize
     onProgress?.('Gemini로 요약 중...');
-    const summary = await this.gemini.summarizeVideo(video.url, config.locale);
+    const summary = await this.gemini.summarizeVideo(video.url, config.locale, captionText);
     const screenshotTimestamps = summary.sections.map((s) => s.screenshotTimestamp);
     onProgress?.(`요약 완료: ${screenshotTimestamps.length}개 섹션`);
 

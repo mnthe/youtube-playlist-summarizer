@@ -76,7 +76,7 @@ export class GeminiClient {
     return parts.join(' ');
   }
 
-  async summarizeVideo(videoUrl: string, locale: string): Promise<VideoSummary> {
+  async summarizeVideo(videoUrl: string, locale: string, captionText?: string | null): Promise<VideoSummary> {
     const systemPrompt = createSystemPrompt();
     const userPrompt = createUserPrompt(locale);
 
@@ -86,6 +86,17 @@ export class GeminiClient {
         mimeType: 'video/mp4',
       },
     };
+
+    // Build contents array: video + optional caption + prompt
+    const contents: Array<{ fileData: { fileUri: string; mimeType: string } } | { text: string }> = [ytVideo];
+
+    if (captionText) {
+      contents.push({
+        text: `[Manual Subtitles/Transcript]\n${captionText}\n\n[End of Subtitles]`,
+      });
+    }
+
+    contents.push({ text: userPrompt });
 
     let lastError: Error | null = null;
 
@@ -141,7 +152,7 @@ export class GeminiClient {
               required: ['overview', 'sections', 'keyPoints'],
             },
           },
-          contents: [ytVideo, { text: userPrompt }],
+          contents,
         });
 
         const text = response.text;
