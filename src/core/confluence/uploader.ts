@@ -180,11 +180,21 @@ export class ConfluenceUploader {
     if (!indexPage) {
       // Create playlist index page (will update with links later)
       onProgress?.(`인덱스 페이지 생성 중: ${normalizedPlaylistTitle}`);
+      const indexPlaceholderAdf = JSON.stringify({
+        version: 1,
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: '영상 목록을 불러오는 중...' }],
+          },
+        ],
+      });
       indexPage = await this.client.createPage({
         spaceId,
         parentId: parentPageId,
         title: normalizedPlaylistTitle,
-        body: `<p>영상 목록을 불러오는 중...</p>`,
+        body: indexPlaceholderAdf,
       });
       onPageCreated?.(normalizedPlaylistTitle, indexPage.id);
     } else {
@@ -295,6 +305,18 @@ export class ConfluenceUploader {
     const hasScreenshots = await this.hasScreenshotDir(screenshotDir);
     const needsDeferredUpdate = hasScreenshots;
 
+    // Placeholder ADF document for deferred updates
+    const placeholderAdf = JSON.stringify({
+      version: 1,
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: '콘텐츠 업로드 중...' }],
+        },
+      ],
+    });
+
     if (!page) {
       // Create video page
       if (needsDeferredUpdate) {
@@ -303,7 +325,7 @@ export class ConfluenceUploader {
           spaceId,
           parentId: parentPageId,
           title: normalizedTitle,
-          body: '<p>콘텐츠 업로드 중...</p>',
+          body: placeholderAdf,
         });
       } else {
         callbacks.onProgress?.(`[Step 1/4] 새 페이지 생성 중: ${normalizedTitle}`);
